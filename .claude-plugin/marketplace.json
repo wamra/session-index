@@ -1,0 +1,8 @@
+{
+  "name": "session-index",
+  "owner": { "name": "wamra" },
+  "plugins": [
+    { "name": "session-index", "source": "./", "description": "Hooks that keep the session index current, plus the session-search skill." },
+    { "name": "session-index-search", "source": "./plugins/session-index-search", "description": "Search and show tools for the model, and a /sessions command." }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "hooks": {
+    "Stop": [{ "hooks": [{ "type": "command", "command": "session-index ingest --stdin-hook --embed", "timeout": 10, "async": true }] }],
+    "SubagentStop": [{ "hooks": [{ "type": "command", "command": "session-index ingest --stdin-hook --embed", "timeout": 10, "async": true }] }],
+    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "session-index ingest --stdin-hook --embed", "timeout": 10, "async": true }] }]
+  }
+}

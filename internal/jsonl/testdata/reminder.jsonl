@@ -1,0 +1,1 @@
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"<system-reminder>ignore me</system-reminder>"},{"type":"text","text":"<local-command-stdout>x</local-command-stdout>"},{"type":"text","text":"keep me"}]},"uuid":"u1","parentUuid":null,"sessionId":"s1","timestamp":"2026-01-02T03:04:05.678Z","isSidechain":false,"cwd":"/x","gitBranch":"main","version":"1.0.0"}

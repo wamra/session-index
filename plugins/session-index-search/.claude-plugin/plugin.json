@@ -1,0 +1,17 @@
+{
+  "name": "session-index-search",
+  "version": "0.1.0",
+  "description": "Search, read and count archived Claude Code sessions through the session-index binary: two model tools and a /sessions command.",
+  "userConfig": {
+    "binary": {
+      "type": "string",
+      "title": "session-index binary",
+      "description": "Command or absolute path of the session-index executable.",
+      "default": "session-index"
+    }
+  },
+  "license": "MIT",
+  "author": {
+    "name": "wamra"
+  }
+}

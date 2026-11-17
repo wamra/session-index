@@ -1,0 +1,9 @@
+archive.sqlite*
+*.db
+*.sqlite*
+/session-index
+/bin/
+*.f32
+/dist/
+CLAUDE.local.md
+/private/

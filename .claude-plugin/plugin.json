@@ -1,0 +1,7 @@
+{
+  "name": "session-index",
+  "version": "0.1.0",
+  "description": "Lossless, searchable index of your Claude Code sessions: hooks keep it current, a skill searches it. Needs the session-index binary on PATH.",
+  "license": "MIT",
+  "author": { "name": "wamra" }
+}
