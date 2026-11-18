@@ -109,8 +109,9 @@ func Sweep(ctx context.Context, st *store.Store, root, profile string) (Summary,
 		sum.NewLines += res.NewLines
 		sum.NewChunks += res.NewChunks
 	}
-	// <root> is <profile>/projects: file-history snapshots sit next to it.
-	if err := SweepAssets(ctx, st, root, filepath.Join(filepath.Dir(filepath.Clean(root)), "file-history"), profile, &sum); err != nil {
+	// <root> is <profile>/projects: file-history, plans, paste-cache, tasks and
+	// uploads sit next to it.
+	if err := SweepAssets(ctx, st, root, filepath.Dir(filepath.Clean(root)), profile, &sum); err != nil {
 		return sum, err
 	}
 	return sum, nil

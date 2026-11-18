@@ -4,7 +4,7 @@ A lossless, searchable index of your Claude Code sessions.
 
 Claude Code removes old transcripts after `cleanupPeriodDays`, and compaction hides earlier detail from the model. `session-index` keeps every transcript line in one SQLite file, so you can search any past session and restore it.
 
-- **Lossless.** Every JSONL line is stored verbatim. `restore` recreates the transcript files byte for byte.
+- **Lossless.** Every JSONL line is stored verbatim. `restore` recreates the transcript files byte for byte. Plans, pasted text, task lists and uploads that Claude Code also deletes are archived too.
 - **Searchable.** Full-text search for exact strings and semantic search for prose, routed automatically.
 - **Always current.** Claude Code hooks index each session as you work.
 - **Compaction-safe.** Messages from before a compaction stay in the index and stay searchable.

@@ -210,3 +210,32 @@ func ClassifyFileHistory(dir, path string) (AssetInfo, bool) {
 	}
 	return AssetInfo{SessionID: parts[0], Kind: AssetFileHistory}, true
 }
+
+// Kinds of the other profile folders Claude Code's retention sweep deletes.
+// Each kind is the directory name under <profile>.
+const (
+	AssetPlans      = "plans"
+	AssetPasteCache = "paste-cache"
+	AssetTasks      = "tasks"
+	AssetUploads    = "uploads"
+)
+
+// SweptDirs lists the profile folders archived next to file-history, in
+// addition to projects/.
+var SweptDirs = []string{AssetPlans, AssetPasteCache, AssetTasks, AssetUploads}
+
+// ClassifyProfileDir classifies path under dir (<profile>/<kind>). For the
+// session-scoped kinds (uploads, tasks) the first component below dir is the
+// session id when the path has at least two components. Every other file
+// belongs to the pseudo-session "<kind>:<profile>", like "memory:<slug>".
+func ClassifyProfileDir(dir, kind, profile, path string) (AssetInfo, bool) {
+	rel, err := filepath.Rel(filepath.Clean(dir), filepath.Clean(path))
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return AssetInfo{}, false
+	}
+	parts := strings.Split(rel, string(filepath.Separator))
+	if (kind == AssetUploads || kind == AssetTasks) && len(parts) >= 2 {
+		return AssetInfo{SessionID: parts[0], Kind: kind}, true
+	}
+	return AssetInfo{SessionID: kind + ":" + profile, Kind: kind}, true
+}
