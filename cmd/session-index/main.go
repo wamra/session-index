@@ -56,6 +56,10 @@ func init() {
 		"rebuild-extras":  {cmdRebuildExtras, "rebuild-extras"},
 		"version":         {cmdVersion, "version"},
 		"config":          {cmdConfig, "config [init [--force]]"},
+		"encrypt":         {cmdEncrypt, "encrypt [--wait 30s] [--recover]"},
+		"decrypt":         {cmdDecrypt, "decrypt [--wait 30s] [--recover]"},
+		"unlock":          {cmdUnlock, "unlock"},
+		"lock":            {cmdLock, "lock"},
 	}
 }
 

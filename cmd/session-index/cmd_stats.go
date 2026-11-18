@@ -262,6 +262,7 @@ func cmdDoctor(args []string, out, errw io.Writer) int {
 	ok := true
 	st, err := openStoreWith(dbPath(), true, io.Discard) // a size mismatch is reported below, not fatal
 	if err != nil {
+		doctorEncryption(dbPath(), out)
 		fmt.Fprintf(errw, "open archive: %v\n", err)
 		return 1
 	}
@@ -269,6 +270,7 @@ func cmdDoctor(args []string, out, errw io.Writer) int {
 	ctx := context.Background()
 	db := st.DB()
 	fmt.Fprintf(out, "db: %s (%s)\n", st.Path(), humanBytes(dbSize(st.Path())))
+	doctorEncryption(st.Path(), out)
 	if cloudStorage(st.Path()) {
 		fmt.Fprintf(out, "WARNING: database appears to be under a cloud-synced folder: sync churn and conflict risk on a live WAL database; relocate with SESSION_INDEX_DB and keep snapshots (see docs/REFERENCE.md, Database location)\n")
 	}

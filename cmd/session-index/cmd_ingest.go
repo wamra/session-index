@@ -49,7 +49,7 @@ func cmdIngest(args []string, out, errw io.Writer) (code int) {
 		return 2
 	}
 
-	var path, sid string
+	var path, sid, event string
 	if *hook {
 		type res struct {
 			in  hooks.HookInput
@@ -66,7 +66,7 @@ func cmdIngest(args []string, out, errw io.Writer) (code int) {
 				fmt.Fprintf(errw, "session-index: %v\n", r.err)
 				return 0 // a hook must never fail the host
 			}
-			path, sid = r.in.TranscriptPath, r.in.SessionID
+			path, sid, event = r.in.TranscriptPath, r.in.SessionID, r.in.HookEventName
 		case <-time.After(stdinTimeout):
 			fmt.Fprintln(errw, "session-index: timed out waiting for hook stdin; skipping")
 			return 0
@@ -97,6 +97,9 @@ func cmdIngest(args []string, out, errw io.Writer) (code int) {
 	st, err := openStore()
 	if err != nil {
 		fmt.Fprintf(errw, "open archive: %v\n", err)
+		if *hook {
+			hookLockedNotice(out, event, err)
+		}
 		return hookExit(*hook)
 	}
 	defer closeWriter(st, errw)
