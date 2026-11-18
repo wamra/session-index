@@ -206,3 +206,38 @@ func TestWalkSymlinkLoopTerminates(t *testing.T) {
 		t.Errorf("Walk visited %v, want exactly one visit", got)
 	}
 }
+
+func TestClassifyProfileDir(t *testing.T) {
+	prof := filepath.Join(string(filepath.Separator), "home", "u", ".claude")
+	cases := []struct {
+		kind, rel string
+		profile   string
+		sid       string
+		ok        bool
+	}{
+		{AssetPlans, "foo.md", "mac", "plans:mac", true},
+		{AssetPlans, filepath.Join("sub", "foo.md"), "mac", "plans:mac", true},
+		{AssetPasteCache, "0123456789abcdef.txt", "mac", "paste-cache:mac", true},
+		{AssetPasteCache, "0123456789abcdef.txt", "", "paste-cache:", true},
+		{AssetTasks, filepath.Join("sid-1", "1.json"), "mac", "sid-1", true},
+		{AssetTasks, filepath.Join("sid-1", ".highwatermark"), "mac", "sid-1", true},
+		{AssetTasks, filepath.Join("sid-1", "deep", "x"), "mac", "sid-1", true},
+		{AssetTasks, ".DS_Store", "mac", "tasks:mac", true},
+		{AssetUploads, filepath.Join("sid-2", "a.png"), "mac", "sid-2", true},
+		{AssetUploads, "stray.png", "mac", "uploads:mac", true},
+		{AssetUploads, "", "mac", "", false},
+	}
+	for _, c := range cases {
+		dir := filepath.Join(prof, c.kind)
+		info, ok := ClassifyProfileDir(dir, c.kind, c.profile, filepath.Join(dir, c.rel))
+		if ok != c.ok || (ok && (info.SessionID != c.sid || info.Kind != c.kind)) {
+			t.Errorf("%s/%s: got %+v %v, want sid %q ok %v", c.kind, c.rel, info, ok, c.sid, c.ok)
+		}
+	}
+	if _, ok := ClassifyProfileDir(filepath.Join(prof, "plans"), AssetPlans, "m", filepath.Join(prof, "tasks", "x")); ok {
+		t.Error("path outside dir must not classify")
+	}
+	if len(SweptDirs) != 4 {
+		t.Errorf("SweptDirs = %v", SweptDirs)
+	}
+}

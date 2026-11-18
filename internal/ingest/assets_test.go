@@ -452,3 +452,80 @@ func TestRebuildExtrasKeepsToolSummariesDropsChangeSummaries(t *testing.T) {
 		t.Fatal("integrity after rebuild-extras")
 	}
 }
+
+func TestProfileDirsSweep(t *testing.T) {
+	st, _ := setup(t)
+	prof := t.TempDir()
+	proj := filepath.Join(prof, "projects")
+	os.MkdirAll(proj, 0o755)
+	mt := time.Unix(1700000000, 123456700)
+	type want struct{ kind, sid string }
+	files := map[string]want{
+		filepath.Join("plans", "my-plan.md"):                 {"plans", "plans:p1"},
+		filepath.Join("paste-cache", "0123456789abcdef.txt"): {"paste-cache", "paste-cache:p1"},
+		filepath.Join("tasks", sid, "1.json"):                {"tasks", sid},
+		filepath.Join("tasks", sid, ".highwatermark"):        {"tasks", sid},
+		filepath.Join("tasks", "named-list", "2.json"):       {"tasks", "named-list"},
+		filepath.Join("uploads", sid, "a.png"):               {"uploads", sid},
+		filepath.Join("uploads", "stray.png"):                {"uploads", "uploads:p1"},
+	}
+	for rel, w := range files {
+		writeMode(t, filepath.Join(prof, rel), "body of "+rel, 0o640, mt)
+		_ = w
+	}
+	// skipped: lock file, finder metadata (directly in tasks/ and nested)
+	writeMode(t, filepath.Join(prof, "tasks", sid, ".lock"), "", 0o600, mt)
+	writeMode(t, filepath.Join(prof, "tasks", ".DS_Store"), "x", 0o600, mt)
+	writeMode(t, filepath.Join(prof, "plans", ".DS_Store"), "x", 0o600, mt)
+
+	sum, err := Sweep(context.Background(), st, proj, "p1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum.AssetsArchived != len(files) || sum.AssetsIgnored != 3 || sum.AssetsFailed != 0 {
+		t.Fatalf("%+v", sum)
+	}
+	for rel, w := range files {
+		var kind, s, sha string
+		var mode, mtime int64
+		err := st.DB().QueryRow(`SELECT kind, session_id, sha256, mode, mtime FROM assets WHERE path=?`, filepath.Join(prof, rel)).Scan(&kind, &s, &sha, &mode, &mtime)
+		if err != nil {
+			t.Fatalf("%s: %v", rel, err)
+		}
+		h := sha256.Sum256([]byte("body of " + rel))
+		if kind != w.kind || s != w.sid || sha != hex.EncodeToString(h[:]) || mtime != mt.UnixNano() {
+			t.Errorf("%s: kind %s sid %s sha %s mtime %d", rel, kind, s, sha, mtime)
+		}
+	}
+	for _, rel := range []string{filepath.Join("tasks", sid, ".lock"), filepath.Join("tasks", ".DS_Store")} {
+		if n := count(t, st, `SELECT count(*) FROM assets WHERE path='`+filepath.Join(prof, rel)+`'`); n != 0 {
+			t.Errorf("%s archived", rel)
+		}
+	}
+	// text assets get an asset_fts row; no chunks or summaries for any new kind
+	if n := count(t, st, `SELECT count(*) FROM asset_fts`); n != 4 {
+		t.Errorf("asset_fts rows %d, want 4", n)
+	}
+	if n := count(t, st, `SELECT count(*) FROM chunks`); n != 0 {
+		t.Errorf("chunks %d", n)
+	}
+	if n := count(t, st, `SELECT count(*) FROM summaries`); n != 0 {
+		t.Errorf("summaries %d", n)
+	}
+
+	// second sweep: everything unchanged
+	sum, err = Sweep(context.Background(), st, proj, "p1")
+	if err != nil || sum.AssetsArchived != 0 || sum.AssetsIgnored != 3 || sum.AssetsFailed != 0 {
+		t.Fatalf("%+v %v", sum, err)
+	}
+
+	// a file removed from disk keeps its archived row and bytes
+	gone := filepath.Join(prof, "plans", "my-plan.md")
+	os.Remove(gone)
+	if _, err := Sweep(context.Background(), st, proj, "p1"); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(t, st, `SELECT count(*) FROM assets WHERE path='`+gone+`' AND raw IS NOT NULL`); n != 1 {
+		t.Errorf("deleted plan lost its archived row")
+	}
+}

@@ -64,6 +64,17 @@ func FileHistory(ctx context.Context, st *store.Store, dir, path, profile string
 	return archiveAsset(ctx, st, path, info, profile)
 }
 
+// ProfileDirAsset archives a file under one of the profile folders in
+// paths.SweptDirs; dir is <profile>/<kind>. Besides the usual skips, the lock
+// files Claude Code keeps in task lists are ignored.
+func ProfileDirAsset(ctx context.Context, st *store.Store, dir, kind, path, profile string) (AssetResult, error) {
+	info, ok := paths.ClassifyProfileDir(dir, kind, profile, path)
+	if !ok || skipName(path) || (kind == paths.AssetTasks && filepath.Base(path) == ".lock") {
+		return AssetResult{Ignored: true}, nil
+	}
+	return archiveAsset(ctx, st, path, info, profile)
+}
+
 func archiveAsset(ctx context.Context, st *store.Store, path string, info paths.AssetInfo, profile string) (res AssetResult, err error) {
 	db := st.DB()
 	var retry sql.NullString
@@ -204,8 +215,9 @@ func archiveAssetNow(ctx context.Context, st *store.Store, path string, info pat
 }
 
 // SweepAssets archives every non-transcript file under root, plus the
-// profile's file-history snapshots when fhDir is non-empty.
-func SweepAssets(ctx context.Context, st *store.Store, root, fhDir, profile string, sum *Summary) error {
+// profile's file-history snapshots and the folders in paths.SweptDirs when
+// profDir (the profile directory that holds projects/) is non-empty.
+func SweepAssets(ctx context.Context, st *store.Store, root, profDir, profile string, sum *Summary) error {
 	var all []string
 	if err := paths.WalkAssets(root, func(p string) { all = append(all, p) }); err != nil {
 		return err
@@ -240,14 +252,27 @@ func SweepAssets(ctx context.Context, st *store.Store, root, fhDir, profile stri
 			return err
 		}
 	}
-	if fhDir != "" {
-		var fh []string
-		if fi, err := os.Stat(fhDir); err == nil && fi.IsDir() {
-			paths.WalkAssets(fhDir, func(p string) { fh = append(fh, p) })
+	if profDir != "" {
+		walk := func(dir string, f func(p string) (AssetResult, error)) error {
+			var list []string
+			if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
+				paths.WalkAssets(dir, func(p string) { list = append(list, p) })
+			}
+			for _, p := range list {
+				p := p
+				if err := each(p, func() (AssetResult, error) { return f(p) }); err != nil {
+					return err
+				}
+			}
+			return nil
 		}
-		for _, p := range fh {
-			p := p
-			if err := each(p, func() (AssetResult, error) { return FileHistory(ctx, st, fhDir, p, profile) }); err != nil {
+		fhDir := filepath.Join(profDir, paths.AssetFileHistory)
+		if err := walk(fhDir, func(p string) (AssetResult, error) { return FileHistory(ctx, st, fhDir, p, profile) }); err != nil {
+			return err
+		}
+		for _, kind := range paths.SweptDirs {
+			kind, dir := kind, filepath.Join(profDir, kind)
+			if err := walk(dir, func(p string) (AssetResult, error) { return ProfileDirAsset(ctx, st, dir, kind, p, profile) }); err != nil {
 				return err
 			}
 		}
