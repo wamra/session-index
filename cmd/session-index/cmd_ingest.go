@@ -139,8 +139,11 @@ func cmdIngest(args []string, out, errw io.Writer) (code int) {
 }
 
 // ingestAssets archives the non-transcript files of the session subtree, the
-// slug's memory/*.md files and the session's file-history snapshots, then
-// resolves tool-result pointers. It returns how many assets were stored.
+// slug's memory/*.md files, the session's file-history snapshots, uploads and
+// tasks, and the profile's plans and paste-cache, then resolves tool-result
+// pointers. Files of the profile folders that are dataless cloud placeholders
+// are skipped, so the hook never waits for a download. It returns how many
+// assets were stored.
 func ingestAssets(ctx context.Context, st *store.Store, root, path, sid, profile string, errw io.Writer) int {
 	n := 0
 	add := func(res ingest.AssetResult, err error, p string) {
@@ -177,6 +180,29 @@ func ingestAssets(ctx context.Context, st *store.Store, root, path, sid, profile
 				res, err := ingest.FileHistory(ctx, st, fh, p, profile)
 				add(res, err, p)
 			}
+		}
+	}
+	profDir := filepath.Dir(filepath.Clean(root))
+	for _, kind := range paths.SweptDirs {
+		kindDir := filepath.Join(profDir, kind)
+		d := kindDir
+		if kind == paths.AssetUploads || kind == paths.AssetTasks {
+			if sid == "" {
+				continue
+			}
+			d = filepath.Join(kindDir, sid)
+		}
+		if fi, err := os.Stat(d); err != nil || !fi.IsDir() {
+			continue
+		}
+		var list []string
+		paths.WalkAssets(d, func(p string) { list = append(list, p) })
+		for _, p := range list {
+			if isDataless(p) {
+				continue
+			}
+			res, err := ingest.ProfileDirAsset(ctx, st, kindDir, kind, p, profile)
+			add(res, err, p)
 		}
 	}
 	if _, err := ingest.ResolvePointers(ctx, st.DB()); err != nil {

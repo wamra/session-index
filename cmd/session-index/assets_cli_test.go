@@ -190,3 +190,57 @@ func TestCLIHookArchivesSessionSubtreeAndMemory(t *testing.T) {
 }
 
 func summarizeOptsForTest() summarize.Opts { return summarize.Opts{Parallel: 1} }
+
+func TestCLIHookArchivesProfileDirs(t *testing.T) {
+	root := seedAssetsFixture(t)
+	prof := filepath.Dir(root)
+	for rel, c := range map[string]string{
+		filepath.Join("plans", "p.md"):                       "# plan",
+		filepath.Join("paste-cache", "0123456789abcdef.txt"): "pasted",
+		filepath.Join("tasks", tsid, "1.json"):               "{}",
+		filepath.Join("tasks", tsid, ".lock"):                "",
+		filepath.Join("tasks", "other", "1.json"):            "{}",
+		filepath.Join("uploads", tsid, "a.png"):              "png",
+		filepath.Join("uploads", "other", "b.png"):           "png",
+	} {
+		p := filepath.Join(prof, rel)
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		os.WriteFile(p, []byte(c), 0o644)
+	}
+	p := filepath.Join(root, "proj", tsid+".jsonl")
+	stdin = strings.NewReader(fmt.Sprintf(`{"session_id":"%s","transcript_path":%q,"hook_event_name":"Stop"}`, tsid, p))
+	defer func() { stdin = os.Stdin }()
+	if code, _, e := runCLI(t, "ingest", "--stdin-hook"); code != 0 {
+		t.Fatalf("%d %s", code, e)
+	}
+	st, _ := openStore()
+	defer st.Close()
+	got := map[string]string{} // path relative to the profile -> kind
+	rows, err := st.DB().Query(`SELECT path, kind || ':' || COALESCE(session_id,'') FROM assets WHERE kind IN ('plans','paste-cache','tasks','uploads')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var path, v string
+		rows.Scan(&path, &v)
+		rel, _ := filepath.Rel(prof, path)
+		got[rel] = v
+	}
+	rows.Close()
+	// the pseudo-session id carries this machine's profile name
+	profile, _ := ownProfile()
+	want := map[string]string{
+		filepath.Join("plans", "p.md"):                       "plans:plans:" + profile,
+		filepath.Join("paste-cache", "0123456789abcdef.txt"): "paste-cache:paste-cache:" + profile,
+		filepath.Join("tasks", tsid, "1.json"):               "tasks:" + tsid,
+		filepath.Join("uploads", tsid, "a.png"):              "uploads:" + tsid,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("assets %v, want %v", got, want)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s: %q, want %q", k, got[k], v)
+		}
+	}
+}
