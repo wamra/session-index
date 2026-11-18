@@ -45,7 +45,7 @@ func rebuildExtras(ctx context.Context, conn *sql.Conn) error {
 		return err
 	}
 
-	if err := rederiveMemoryAssets(ctx, conn); err != nil {
+	if err := rederiveAssetChunks(ctx, conn); err != nil {
 		return err
 	}
 
@@ -254,41 +254,50 @@ func BackfillExtras(ctx context.Context, st *store.Store) (int, error) {
 	return n, nil
 }
 
-// rederiveMemoryAssets recreates the session row and chunks of every memory asset.
-func rederiveMemoryAssets(ctx context.Context, conn *sql.Conn) error {
-	type mem struct {
+// rederiveAssetChunks recreates the session row and chunks of every memory
+// asset and every plan asset.
+func rederiveAssetChunks(ctx context.Context, conn *sql.Conn) error {
+	type doc struct {
 		id                 int64
+		kind               string
 		sid, path, profile sql.NullString
 		mtime              int64
 		raw                []byte
 	}
-	rows, err := conn.QueryContext(ctx, `SELECT id, session_id, path, profile, mtime, raw FROM assets WHERE kind=? AND raw IS NOT NULL ORDER BY id`, paths.AssetMemory)
+	rows, err := conn.QueryContext(ctx, `SELECT id, kind, session_id, path, profile, mtime, raw FROM assets WHERE kind IN (?,?) AND raw IS NOT NULL ORDER BY id`, paths.AssetMemory, paths.AssetPlans)
 	if err != nil {
 		return err
 	}
-	var ms []mem
+	var ds []doc
 	for rows.Next() {
-		var m mem
-		if err := rows.Scan(&m.id, &m.sid, &m.path, &m.profile, &m.mtime, &m.raw); err != nil {
+		var d doc
+		if err := rows.Scan(&d.id, &d.kind, &d.sid, &d.path, &d.profile, &d.mtime, &d.raw); err != nil {
 			rows.Close()
 			return err
 		}
-		ms = append(ms, m)
+		ds = append(ds, d)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	for _, m := range ms {
-		data, err := zst.Decompress(m.raw)
+	for _, d := range ds {
+		data, err := zst.Decompress(d.raw)
 		if err != nil {
-			return fmt.Errorf("memory asset %d: %w", m.id, err)
+			return fmt.Errorf("%s asset %d: %w", d.kind, d.id, err)
 		}
-		slug := m.sid.String
-		if len(slug) > 7 {
-			slug = slug[7:]
+		if d.kind == paths.AssetPlans {
+			if IsTextAsset(d.path.String) {
+				err = rederivePlan(ctx, conn, d.id, d.sid.String, baseName(d.path.String), d.profile.String, d.mtime, data)
+			}
+		} else {
+			slug := d.sid.String
+			if len(slug) > 7 {
+				slug = slug[7:]
+			}
+			err = rederiveMemory(ctx, conn, d.id, d.sid.String, slug, baseName(d.path.String), d.profile.String, d.mtime, data)
 		}
-		if err := rederiveMemory(ctx, conn, m.id, m.sid.String, slug, baseName(m.path.String), m.profile.String, m.mtime, data); err != nil {
+		if err != nil {
 			return err
 		}
 	}
@@ -355,7 +364,7 @@ func RebuildExtras(ctx context.Context, st *store.Store) (ExtrasReport, error) {
 			return rep, fmt.Errorf("%s: %w", q, err)
 		}
 	}
-	if err := rederiveMemoryAssets(ctx, conn); err != nil {
+	if err := rederiveAssetChunks(ctx, conn); err != nil {
 		return rep, err
 	}
 	if _, err := conn.ExecContext(ctx, `COMMIT`); err != nil {

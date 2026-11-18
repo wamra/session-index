@@ -23,7 +23,7 @@ type SearchInput = {
   profile?: string
   project?: string
   role?: 'user' | 'assistant'
-  kind?: 'main' | 'subagent' | 'workflow'
+  kind?: 'main' | 'subagent' | 'workflow' | 'plan'
   k?: number
 }
 
@@ -92,7 +92,7 @@ export const register: Register = (on, options) => {
           profile: { type: 'string', description: "Only this machine/profile, for example 'laptop'." },
           project: { type: 'string', description: 'Only projects whose name contains this text.' },
           role: { type: 'string', enum: ['user', 'assistant'] },
-          kind: { type: 'string', enum: ['main', 'subagent', 'workflow'] },
+          kind: { type: 'string', enum: ['main', 'subagent', 'workflow', 'plan'] },
           k: { type: 'number', description: 'Sessions to return, 1 to 25 (default 8).' },
         },
         required: ['query'],

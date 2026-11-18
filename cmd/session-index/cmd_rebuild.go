@@ -100,7 +100,7 @@ func cmdRebuildExtras(args []string, out, errw io.Writer) int {
 		fmt.Fprintf(errw, "rebuild-extras: %v\n", err)
 		return 1
 	}
-	fmt.Fprintf(out, "rebuild-extras: file_changes %d -> %d, tool_outputs %d -> %d; summaries kept %d, deleted %d; chunks deleted %d; run `session-index embed` to embed re-derived memory chunks\n",
+	fmt.Fprintf(out, "rebuild-extras: file_changes %d -> %d, tool_outputs %d -> %d; summaries kept %d, deleted %d; chunks deleted %d; run `session-index embed` to embed re-derived memory and plan chunks\n",
 		rep.FileChangesBefore, rep.FileChangesAfter, rep.ToolOutputsBefore, rep.ToolOutputsAfter, rep.SummariesKept, rep.SummariesDeleted, rep.ChunksDeleted)
 	return 0
 }

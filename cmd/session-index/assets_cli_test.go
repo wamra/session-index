@@ -191,6 +191,39 @@ func TestCLIHookArchivesSessionSubtreeAndMemory(t *testing.T) {
 
 func summarizeOptsForTest() summarize.Opts { return summarize.Opts{Parallel: 1} }
 
+func TestCLISearchFindsPlans(t *testing.T) {
+	root := seedAssetsFixture(t)
+	p := filepath.Join(filepath.Dir(root), "plans", "calm-river.md")
+	os.MkdirAll(filepath.Dir(p), 0o755)
+	os.WriteFile(p, []byte("# Plan: ledger migration\n\nThe wombatledger tables are copied in batches before the cutover."), 0o644)
+	srv := fakeOllama(t)
+	t.Setenv("SESSION_INDEX_OLLAMA", srv.URL)
+	if code, out, e := runCLI(t, "sweep", "--embed"); code != 0 {
+		t.Fatalf("sweep %d %s %s", code, out, e)
+	}
+	profile, _ := ownProfile()
+	code, out, _ := runCLI(t, "search", "wombatledger", "--mode", "fts", "--json")
+	if code != 0 || !strings.Contains(out, `"kind": "plan"`) || !strings.Contains(out, "plans:"+profile) {
+		t.Fatalf("plan search: %q", out)
+	}
+	if code, out, _ = runCLI(t, "search", "wombatledger", "--mode", "fts"); code != 0 || !strings.Contains(out, "[plan] calm-river.md") {
+		t.Fatalf("plan marker: %q", out)
+	}
+	if code, out, _ = runCLI(t, "search", "wombatledger", "--mode", "fts", "--kind", "plan", "--json"); code != 0 || !strings.Contains(out, `"kind": "plan"`) {
+		t.Fatalf("--kind plan: %q", out)
+	}
+	if code, out, _ = runCLI(t, "search", "wombatledger batches cutover", "--mode", "vector", "--json"); code != 0 || !strings.Contains(out, `"kind": "plan"`) {
+		t.Fatalf("vector search: %q", out)
+	}
+	st, _ := openStore()
+	defer st.Close()
+	var n int
+	st.DB().QueryRow(`SELECT count(*) FROM chunks WHERE kind='plan' AND embedded_at IS NOT NULL`).Scan(&n)
+	if n != 1 {
+		t.Fatalf("embedded plan chunks %d", n)
+	}
+}
+
 func TestCLIHookArchivesProfileDirs(t *testing.T) {
 	root := seedAssetsFixture(t)
 	prof := filepath.Dir(root)

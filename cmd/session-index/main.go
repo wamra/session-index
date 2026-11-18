@@ -42,7 +42,7 @@ func init() {
 		"ingest":          {cmdIngest, "ingest (--transcript PATH | --stdin-hook) [--profile NAME] [--embed]"},
 		"sweep":           {cmdSweep, "sweep [--root DIR --profile NAME | --all-profiles] [--embed]"},
 		"embed":           {cmdEmbed, "embed [--batch 128] [--max N] [--summarize-budget 45s]"},
-		"search":          {cmdSearch, "search QUERY [--mode auto|vector|fts|hybrid] [--k 10] [--since 7d|24h|YYYY-MM-DD] [--project SUBSTR] [--role user|assistant] [--kind main|subagent|workflow] [--profile NAME] [--db PATH]... [--json]"},
+		"search":          {cmdSearch, "search QUERY [--mode auto|vector|fts|hybrid] [--k 10] [--since 7d|24h|YYYY-MM-DD] [--project SUBSTR] [--role user|assistant] [--kind main|subagent|workflow|plan] [--profile NAME] [--db PATH]... [--json]"},
 		"show":            {cmdShow, "show SESSION_ID [--around UUID] [--n 20] [--changes]"},
 		"files":           {cmdFiles, "files SUBSTRING [--profile NAME] [--limit 200] [--json]"},
 		"summarize":       {cmdSummarize, "summarize [--max N] [--budget 60s] [--model NAME] [--parallel P] [--kind tool,change,asset] [--retry-failed [REASON]]"},

@@ -502,12 +502,12 @@ func TestProfileDirsSweep(t *testing.T) {
 			t.Errorf("%s archived", rel)
 		}
 	}
-	// text assets get an asset_fts row; no chunks or summaries for any new kind
+	// text assets get an asset_fts row; only the plan gets chunks, and no kind gets summaries
 	if n := count(t, st, `SELECT count(*) FROM asset_fts`); n != 4 {
 		t.Errorf("asset_fts rows %d, want 4", n)
 	}
-	if n := count(t, st, `SELECT count(*) FROM chunks`); n != 0 {
-		t.Errorf("chunks %d", n)
+	if n := count(t, st, `SELECT count(*) FROM chunks WHERE kind<>'plan'`); n != 0 {
+		t.Errorf("chunks of other kinds %d", n)
 	}
 	if n := count(t, st, `SELECT count(*) FROM summaries`); n != 0 {
 		t.Errorf("summaries %d", n)
@@ -527,5 +527,76 @@ func TestProfileDirsSweep(t *testing.T) {
 	}
 	if n := count(t, st, `SELECT count(*) FROM assets WHERE path='`+gone+`' AND raw IS NOT NULL`); n != 1 {
 		t.Errorf("deleted plan lost its archived row")
+	}
+}
+
+func TestPlanChunkedAndSession(t *testing.T) {
+	st, _ := setup(t)
+	prof := t.TempDir()
+	proj := filepath.Join(prof, "projects")
+	os.MkdirAll(proj, 0o755)
+	p := filepath.Join(prof, "plans", "calm-river.md")
+	long := strings.Repeat("The migration step copies the ledger tables in batches. ", 60) // more than one chunk
+	writeMode(t, p, "# Plan: zebrafish ledger migration\n\nContext paragraph about the zebrafish rollout.\n\n"+long+"\n\nVerification uses the quokka checksum.", 0o644, time.Now())
+	writeMode(t, filepath.Join(prof, "plans", "shot.png"), strings.Repeat("binary bytes ", 20), 0o644, time.Now())
+	writeMode(t, filepath.Join(prof, "paste-cache", "0123456789abcdef.txt"), strings.Repeat("pasted text ", 20), 0o644, time.Now())
+	if _, err := Sweep(context.Background(), st, proj, "p1"); err != nil {
+		t.Fatal(err)
+	}
+	n := count(t, st, `SELECT count(*) FROM chunks WHERE kind='plan' AND session_id='plans:p1' AND embedded_at IS NULL`)
+	if n < 2 || count(t, st, `SELECT count(*) FROM chunks`) != n {
+		t.Fatalf("plan chunks %d of %d", n, count(t, st, `SELECT count(*) FROM chunks`))
+	}
+	var title, kind string
+	var project *string
+	if err := st.DB().QueryRow(`SELECT title, kind, project FROM sessions WHERE session_id='plans:p1'`).Scan(&title, &kind, &project); err != nil || title != "plans" || kind != "plan" || project != nil {
+		t.Fatalf("%q %q %v %v", title, kind, project, err)
+	}
+	if count(t, st, `SELECT count(*) FROM sessions WHERE session_id='paste-cache:p1'`) != 0 {
+		t.Fatal("paste-cache must not get a session row")
+	}
+	// every chunk names the file and carries the plan's heading, once
+	if m := count(t, st, `SELECT count(*) FROM chunks WHERE kind='plan' AND text LIKE 'calm-river.md'||char(10)||'%' AND text LIKE '%# Plan: zebrafish ledger migration%'`); m != n {
+		t.Fatalf("%d of %d plan chunks carry the file name and the heading", m, n)
+	}
+	if m := count(t, st, `SELECT count(*) FROM chunks WHERE kind='plan' AND length(text) - length(replace(text, '# Plan: zebrafish', '')) > length('# Plan: zebrafish')`); m != 0 {
+		t.Fatalf("heading repeated inside %d chunks", m)
+	}
+	if count(t, st, `SELECT count(*) FROM chunk_fts WHERE chunk_fts MATCH 'quokka'`) != 1 {
+		t.Fatal("plan text missing from chunk_fts")
+	}
+	// a changed plan replaces its chunks
+	writeMode(t, p, "# Plan: narwhal cache\n\nCompletely different narwhal content lives here now.", 0o644, time.Now().Add(time.Hour))
+	Sweep(context.Background(), st, proj, "p1")
+	if n := count(t, st, `SELECT count(*) FROM chunks WHERE kind='plan'`); n != 1 {
+		t.Fatalf("plan chunks after change %d", n)
+	}
+	if n := count(t, st, `SELECT count(*) FROM chunk_fts WHERE chunk_fts MATCH 'quokka'`); n != 0 {
+		t.Fatalf("stale fts %d", n)
+	}
+	// a plan deleted from disk keeps its chunks
+	os.Remove(p)
+	Sweep(context.Background(), st, proj, "p1")
+	if n := count(t, st, `SELECT count(*) FROM chunks WHERE kind='plan'`); n != 1 {
+		t.Fatalf("plan chunks after the file was deleted %d", n)
+	}
+	// Rederive, RebuildExtras and Repair keep the asset and its chunks
+	if _, err := Rederive(context.Background(), st, ""); err != nil {
+		t.Fatal(err)
+	}
+	if count(t, st, `SELECT count(*) FROM chunks WHERE kind='plan'`) != 1 || count(t, st, `SELECT count(*) FROM sessions WHERE session_id='plans:p1' AND kind='plan'`) != 1 {
+		t.Fatal("after rederive")
+	}
+	if _, err := RebuildExtras(context.Background(), st); err != nil {
+		t.Fatal(err)
+	}
+	if count(t, st, `SELECT count(*) FROM chunks WHERE kind='plan'`) != 1 {
+		t.Fatal("after rebuild-extras")
+	}
+	if _, err := Repair(context.Background(), st); err != nil {
+		t.Fatal(err)
+	}
+	if count(t, st, `SELECT count(*) FROM chunks WHERE kind='plan'`) != 1 || count(t, st, `SELECT count(*) FROM pragma_foreign_key_check`) != 0 {
+		t.Fatal("after repair")
 	}
 }

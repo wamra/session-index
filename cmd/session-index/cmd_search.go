@@ -38,6 +38,8 @@ func kindMarker(kind string) string {
 		return "[summary] "
 	case "memory":
 		return "[memory] "
+	case "plan":
+		return "[plan] "
 	case "filechange":
 		return "[file] "
 	}
@@ -98,7 +100,7 @@ func cmdSearch(args []string, out, errw io.Writer) int {
 	since := fs.String("since", "", "7d, 24h or YYYY-MM-DD")
 	project := fs.String("project", "", "project substring")
 	role := fs.String("role", "", "user|assistant")
-	kind := fs.String("kind", "", "main|subagent|workflow")
+	kind := fs.String("kind", "", "main|subagent|workflow|plan")
 	asJSON := fs.Bool("json", false, "print JSON")
 	profile := fs.String("profile", "", "only sessions of this profile")
 	var dbs repeatFlag

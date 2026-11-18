@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/wamra/session-index/internal/paths"
 	"github.com/wamra/session-index/internal/store"
@@ -206,6 +207,11 @@ func archiveAssetNow(ctx context.Context, st *store.Store, path string, info pat
 			return res, err
 		}
 	}
+	if info.Kind == paths.AssetPlans && IsTextAsset(path) {
+		if err = rederivePlan(ctx, conn, id, info.SessionID, filepath.Base(path), profile, mtime, data); err != nil {
+			return res, err
+		}
+	}
 	if _, err = conn.ExecContext(ctx, `COMMIT`); err != nil {
 		return res, err
 	}
@@ -287,6 +293,53 @@ func SweepAssets(ctx context.Context, st *store.Store, root, profDir, profile st
 // rederiveMemory (re)creates the synthetic session row and the chunks of one
 // memory markdown asset. Old chunks of the asset are removed first.
 func rederiveMemory(ctx context.Context, tx execQuerier, assetID int64, sessionID, slug, name, profile string, mtime int64, data []byte) error {
+	var texts []string
+	for _, c := range chunkTexts([]string{strings.ToValidUTF8(string(data), "")}) {
+		texts = append(texts, name+"\n"+c)
+	}
+	return rederiveDoc(ctx, tx, assetID, sessionID, slug, "memory", "memory", profile, mtime, texts)
+}
+
+// rederivePlan (re)creates the synthetic session row ("plans:<profile>") and
+// the chunks of one plan file. Each chunk starts with the file name and, when
+// the chunk does not contain it, the plan's heading, so a hit in the middle of
+// a plan still says which plan it is.
+func rederivePlan(ctx context.Context, tx execQuerier, assetID int64, sessionID, name, profile string, mtime int64, data []byte) error {
+	text := strings.ToValidUTF8(string(data), "")
+	heading := planHeading(text)
+	var texts []string
+	for _, c := range chunkTexts([]string{text}) {
+		if heading != "" && !strings.Contains(c, heading) {
+			c = heading + "\n\n" + c
+		}
+		texts = append(texts, name+"\n"+c)
+	}
+	return rederiveDoc(ctx, tx, assetID, sessionID, "", "plans", "plan", profile, mtime, texts)
+}
+
+// maxPlanHeading bounds the heading repeated in every chunk of a plan.
+const maxPlanHeading = 200
+
+// planHeading returns the first non-blank line of a plan when it is a
+// markdown heading of at most maxPlanHeading runes, else "".
+func planHeading(text string) string {
+	for _, l := range strings.Split(text, "\n") {
+		l = strings.TrimSpace(l)
+		if l == "" {
+			continue
+		}
+		if strings.HasPrefix(l, "#") && utf8.RuneCountInString(l) <= maxPlanHeading {
+			return l
+		}
+		return ""
+	}
+	return ""
+}
+
+// rederiveDoc replaces the chunks of a chunked asset (memory file, plan) with
+// texts and upserts its synthetic session row; kind is both the session kind
+// and the chunk kind.
+func rederiveDoc(ctx context.Context, tx execQuerier, assetID int64, sessionID, project, title, kind, profile string, mtime int64, texts []string) error {
 	recID, err := AssetRecord(ctx, tx, assetID, sessionID)
 	if err != nil {
 		return err
@@ -295,15 +348,14 @@ func rederiveMemory(ctx context.Context, tx execQuerier, assetID int64, sessionI
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO sessions(session_id, project, title, kind, message_count, profile)
-		VALUES(?,?,'memory','memory',0,?)
-		ON CONFLICT(session_id) DO UPDATE SET project=excluded.project, title='memory', kind='memory',
-			profile=COALESCE(excluded.profile, profile)`, sessionID, slug, nullStr(profile)); err != nil {
+		VALUES(?,?,?,?,0,?)
+		ON CONFLICT(session_id) DO UPDATE SET project=excluded.project, title=excluded.title, kind=excluded.kind,
+			profile=COALESCE(excluded.profile, profile)`, sessionID, nullStr(project), title, kind, nullStr(profile)); err != nil {
 		return err
 	}
 	ts := time.Unix(0, mtime).UTC().Format(time.RFC3339)
-	text := strings.ToValidUTF8(string(data), "")
-	for i, c := range chunkTexts([]string{text}) {
-		if _, err := AddChunk(ctx, tx, recID, sessionID, "memory", "", ts, i, name+"\n"+c); err != nil {
+	for i, c := range texts {
+		if _, err := AddChunk(ctx, tx, recID, sessionID, kind, "", ts, i, c); err != nil {
 			return err
 		}
 	}
