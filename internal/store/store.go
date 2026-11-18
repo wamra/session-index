@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 
 	_ "github.com/asg017/sqlite-vec-go-bindings/ncruces"
@@ -74,6 +75,31 @@ type Store struct {
 	path string
 }
 
+// JournalMode is the journal mode every writable connection asks for: WAL,
+// except on Windows, where it is a rollback journal (DELETE).
+//
+// The pinned SQLite driver (docs/REFERENCE.md, Design note) maps the WAL index
+// at an offset that is not a multiple of the Windows allocation granularity,
+// so a transaction that grows the WAL past its first index region (about
+// 4,000 pages) fails with "disk I/O error" (ncruces/go-sqlite3 issue 330,
+// fixed upstream in v0.30.1, which the sqlite-vec binding does not link
+// against). A rollback journal uses no shared memory.
+var JournalMode = journalMode(runtime.GOOS)
+
+func journalMode(goos string) string {
+	if goos == "windows" {
+		return "DELETE"
+	}
+	return "WAL"
+}
+
+// dsn builds the "file:" URI for path. The path is percent-encoded and
+// written without a "//" authority, so a Windows path (C:\...) and a path
+// containing '%', '#' or '?' reach SQLite unchanged.
+func dsn(path string, q url.Values) string {
+	return "file:" + (&url.URL{Path: path}).EscapedPath() + "?" + q.Encode()
+}
+
 // Open opens (creating if needed) the archive at path and applies the schema.
 // Rows that predate the profile columns are left with a NULL profile; use
 // OpenProfile to backfill them.
@@ -90,10 +116,9 @@ func OpenWith(path string, o Opts) (*Store, error) {
 	setupCompilationCache(path)
 	q := url.Values{}
 	q.Add("_pragma", "busy_timeout(30000)")
-	q.Add("_pragma", "journal_mode(WAL)")
+	q.Add("_pragma", "journal_mode("+JournalMode+")")
 	q.Add("_pragma", "synchronous(FULL)")
-	dsn := "file:" + path + "?" + q.Encode()
-	db, err := sql.Open("sqlite3", dsn)
+	db, err := sql.Open("sqlite3", dsn(path, q))
 	if err != nil {
 		return nil, err
 	}
@@ -115,8 +140,7 @@ func OpenReadOnly(path string) (*Store, error) {
 	q.Set("mode", "ro")
 	q.Add("_pragma", "busy_timeout(5000)")
 	q.Add("_pragma", "query_only(1)")
-	u := url.URL{Scheme: "file", Path: path, RawQuery: q.Encode()}
-	db, err := sql.Open("sqlite3", u.String())
+	db, err := sql.Open("sqlite3", dsn(path, q))
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +159,8 @@ var ErrCheckpointBusy = errors.New("wal checkpoint busy")
 
 // Checkpoint runs PRAGMA wal_checkpoint(TRUNCATE) so the main database file is
 // complete on its own (-wal empty). It waits at most ~2 s for other
-// connections; a busy result is reported as an error.
+// connections; a busy result is reported as an error. Without a WAL (see
+// JournalMode) there is nothing to fold in and it returns nil.
 func (s *Store) Checkpoint() error {
 	ctx := context.Background()
 	conn, err := s.db.Conn(ctx)

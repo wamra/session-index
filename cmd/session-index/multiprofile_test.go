@@ -104,7 +104,7 @@ func TestCLIWritersLeaveWALEmpty(t *testing.T) {
 	if _, err := pre.DB().Exec(`INSERT INTO meta(key,value) VALUES('probe','1')`); err != nil {
 		t.Fatal(err)
 	}
-	if fi, err := os.Stat(db + "-wal"); err != nil || fi.Size() == 0 {
+	if fi, err := os.Stat(db + "-wal"); store.JournalMode == "WAL" && (err != nil || fi.Size() == 0) {
 		t.Fatalf("-wal should be non-empty before closeWriter: %v %v", fi, err)
 	}
 	closeWriter(pre, os.Stderr)

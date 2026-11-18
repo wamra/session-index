@@ -93,8 +93,8 @@ func TestOpenCreatesSchemaAndVec(t *testing.T) {
 	}
 	var jm string
 	db.QueryRow(`pragma journal_mode`).Scan(&jm)
-	if jm != "wal" {
-		t.Fatalf("journal_mode %s", jm)
+	if jm != strings.ToLower(JournalMode) {
+		t.Fatalf("journal_mode %s, want %s", jm, JournalMode)
 	}
 	if err := Migrate(db); err != nil {
 		t.Fatalf("migrate not idempotent: %v", err)
@@ -155,6 +155,13 @@ func TestCheckpointLeavesEmptyWAL(t *testing.T) {
 	defer s.Close()
 	if _, err := s.DB().Exec(`INSERT INTO meta(key,value) VALUES('k','v')`); err != nil {
 		t.Fatal(err)
+	}
+	if JournalMode != "WAL" {
+		// Rollback journal: there is no -wal, and Checkpoint must still succeed.
+		if err := s.Checkpoint(); err != nil {
+			t.Fatal(err)
+		}
+		return
 	}
 	if fi, err := os.Stat(path + "-wal"); err != nil || fi.Size() == 0 {
 		t.Fatalf("expected non-empty -wal before checkpoint: %v %v", fi, err)
