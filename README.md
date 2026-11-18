@@ -10,6 +10,7 @@ Claude Code removes old transcripts after `cleanupPeriodDays`, and compaction hi
 - **Compaction-safe.** Messages from before a compaction stay in the index and stay searchable.
 - **Multi-machine.** Each machine keeps its own archive; one search covers all of them when the profiles are synced.
 - **Local first.** By default nothing leaves your machine. Hosted providers (Anthropic, Bedrock, OpenAI-compatible) are opt-in.
+- **Encrypted if you want.** `session-index encrypt` encrypts the whole archive file with a key locked by your passphrase.
 - **One binary.** Pure Go, no cgo.
 
 ## Install
@@ -44,6 +45,7 @@ session-index search "LockFileEx" --mode fts --since 30d --project myrepo
 session-index show SESSION_ID --around UUID --n 20   # read the conversation
 session-index files SUBSTRING                        # which sessions changed a file
 session-index restore SESSION_ID --to DIR            # recreate a deleted transcript
+session-index encrypt                                # encrypt the archive file (asks for a passphrase)
 session-index stats
 session-index doctor
 session-index help                                   # every command and flag
@@ -64,11 +66,12 @@ Version 0.1.0. Only macOS is in daily use.
 
 - Linux: the test suite passes in CI; not used beyond that.
 - Windows: the test suite passes in CI; not used beyond that, and `install.ps1` has not been run.
+- Encryption has been tested on macOS only.
 - The plugin install commands and `.goreleaser.yaml` have not been tested.
 
 ## Documentation
 
-- [docs/REFERENCE.md](docs/REFERENCE.md): configuration, hosted providers and cost guards, multi-profile archives, restore, summaries, maintenance, retention, rollback.
+- [docs/REFERENCE.md](docs/REFERENCE.md): configuration, hosted providers and cost guards, multi-profile archives, restore, summaries, maintenance, retention, encryption, rollback.
 - [BENCHMARKS.md](BENCHMARKS.md): search quality and speed.
 - [plugins/session-index-search/README.md](plugins/session-index-search/README.md): the in-session search tools.
 

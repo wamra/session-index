@@ -37,11 +37,14 @@ sqlite3 archive.sqlite ".backup /path/outside/sync/snapshot.sqlite"
 # or: sqlite3 archive.sqlite "VACUUM INTO '/path/outside/sync/snapshot.sqlite'"
 ```
 
+These commands work on a plaintext archive only; for an encrypted one see [Encryption](#encryption).
+
 Vector search is a brute-force scan (22 ms p50 at about 15k vectors, linear in corpus size) and the 100 ms p95 target passes only barely at the current size; expect it to grow with the corpus.
 
 ## What gets written where
 
 - Database: `~/.claude/cache/session-archive/archive.sqlite`.
+- Only after `encrypt`: `archive.key` next to the database, the unlocked key in `~/.config/session-index/keys/`, and the kept copy `archive.sqlite.plaintext-<UTC timestamp>`.
 - `~/.claude/settings.json`: three async hook entries (`Stop`, `SubagentStop`, `SessionEnd`) running `<path of the session-index binary> ingest --stdin-hook --embed` (timeout 10 s). Existing hooks are kept. A one-time backup is written to `~/.claude/settings.json.bak-session-index`.
 - Only with `install-hooks --launchd`: `~/Library/LaunchAgents/session-index.sweep.plist`, which runs `session-index sweep --embed` at load and every 600 s (log at `~/.claude/cache/session-archive/sweep.log`).
 - `~/.claude/projects` is only read, never modified (`restore --in-place` is the only command that writes there, and only when asked).
@@ -164,6 +167,24 @@ Each Claude profile (`<profiles>/<name>/`, for example `desktop`, `laptop`, `def
 ## Retention
 
 Because transcripts are archived losslessly (raw lines are stored in `records.raw`), Claude Code's `cleanupPeriodDays` can now be lowered; `session-index restore SESSION_ID --to DIR` recreates deleted transcripts.
+
+## Encryption
+
+Off by default. `session-index encrypt` encrypts the whole archive file (raw lines, FTS indexes, vectors, and its journal or WAL) with the SQLite driver's Adiantum VFS (`vfs/adiantum`, 4 KiB blocks). The file keeps its name, `archive.sqlite`.
+
+- Key: 32 random bytes. `archive.key`, next to the archive, holds the key locked with your passphrase (Argon2id: time 3, memory 64 MiB, 4 threads; XChaCha20-Poly1305) and syncs with the archive. The unlocked key is cached per machine in `~/.config/session-index/keys/<key id>.key` (mode 0600), so hooks and search run without a prompt. `SESSION_INDEX_KEY_DIR` moves that directory; keep it out of any synced tree.
+- `encrypt [--wait 30s] [--recover]` asks for a new passphrase twice (at least 8 characters; one line from stdin when stdin is not a terminal), writes the key file, waits up to `--wait` for sole access to the archive, copies it with `VACUUM INTO`, verifies the copy (`PRAGMA integrity_check`, same tables, same row counts) and swaps the files. Embeddings and summaries are copied, not rebuilt. The plaintext file stays as `archive.sqlite.plaintext-<UTC timestamp>`: nothing deletes it, and `doctor` warns while it exists. It needs free disk space about the size of the archive. A 1.3 GB archive took about 20 s.
+- `decrypt [--wait 30s] [--recover]` is the reverse. The encrypted file stays as `archive.sqlite.encrypted-<UTC timestamp>` and the key file stays, so a later `encrypt` reuses it (it asks for the same passphrase).
+- `unlock` asks for the passphrase once and caches the key for the own archive and for every peer archive that has a key file. Run it once on each other machine. `lock` removes the cached keys from this machine.
+- An archive that does not exist yet is created encrypted when `archive.key` is already next to its path.
+- While `encrypt` or `decrypt` runs, `archive.sqlite.migrating` exists and every other open of the archive fails. A run that was interrupted is undone by the next `encrypt` or `decrypt`, or by `--recover` alone.
+- On a machine where the archive is locked, commands fail with `archive is encrypted and locked on this machine (run: session-index unlock)`. Hooks exit 0 and archive nothing; the `Stop` hook also prints a `systemMessage` that says so. After `unlock`, `session-index sweep` picks up what was missed.
+- `doctor` prints `encryption: off` or `encryption: on (key <id>, unlocked on this machine)` (or `LOCKED on this machine`).
+- Before encrypting, every `session-index` binary that opens the archive (the hooks on each machine, a `session-archive` link) must be a version that has these commands. Older versions cannot open an encrypted archive.
+- What it protects: the file at rest (the copy at the sync provider, backups, other accounts on the machine). What it does not: software running as you on an unlocked machine, which can read the cached key. Adiantum is deterministic and not authenticated: a modified file is not detected, and someone who sees successive versions of the file can tell which blocks changed.
+- There is no recovery without the passphrase. A new machine needs both `archive.key` and the passphrase, so back up the key file with the archive.
+- The `sqlite3` command and other SQLite tools cannot read an encrypted archive. For a snapshot, copy `archive.sqlite` and `archive.key` while no session is writing.
+- Tested on macOS only.
 
 ## Renamed from session-archive
 
