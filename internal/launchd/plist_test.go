@@ -33,7 +33,8 @@ func TestPlistContent(t *testing.T) {
 			t.Errorf("missing %q in:\n%s", w, s)
 		}
 	}
-	if strings.Contains(s, "~") {
+	// ">~", not "~": a Windows temp dir can hold a short name such as RUNNER~1
+	if strings.Contains(s, ">~") {
 		t.Error("log path must be expanded")
 	}
 }

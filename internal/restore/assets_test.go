@@ -27,7 +27,8 @@ func TestRestoreWritesAssetsWithModeAndMtime(t *testing.T) {
 	st := openStore(t)
 	prof := t.TempDir()
 	root := filepath.Join(prof, "projects")
-	mt := time.Unix(1700000000, 987654321)
+	// a multiple of 100 ns, the resolution of Windows file times
+	mt := time.Unix(1700000000, 987654300)
 	main := filepath.Join(root, "proj", sid+".jsonl")
 	writeFile(t, main, userLine(1, longText))
 	os.Chmod(main, 0o600)

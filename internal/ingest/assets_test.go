@@ -32,7 +32,8 @@ func writeMode(t *testing.T, path, content string, mode os.FileMode, mt time.Tim
 
 func TestAssetRoundTripAndKinds(t *testing.T) {
 	st, root := setup(t)
-	mt := time.Unix(1700000000, 123456789)
+	// a multiple of 100 ns, the resolution of Windows file times
+	mt := time.Unix(1700000000, 123456700)
 	files := map[string]string{
 		filepath.Join("proj", sid, "tool-results", "x.txt"):                    "tool output body",
 		filepath.Join("proj", sid, "subagents", "agent-1.meta.json"):           `{"a":1}`,
