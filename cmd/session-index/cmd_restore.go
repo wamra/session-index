@@ -13,6 +13,7 @@ func cmdRestore(args []string, out, errw io.Writer) int {
 	to := fs.String("to", "", "directory to restore into")
 	inPlace := fs.Bool("in-place", false, "restore to original paths")
 	fh := fs.Bool("with-file-history", false, "also write the session's file-history snapshots (<profile>/file-history/<sid>/)")
+	pd := fs.Bool("with-profile-dirs", false, "also write the session's uploads/ and tasks/ files (<profile>/uploads/<sid>/, <profile>/tasks/<sid>/); implies --with-file-history")
 	pos, err := parseInterspersed(fs, args)
 	if err != nil || len(pos) != 1 {
 		fmt.Fprintln(errw, "restore: exactly one SESSION_ID is required")
@@ -34,7 +35,7 @@ func cmdRestore(args []string, out, errw io.Writer) int {
 		fmt.Fprintln(errw, err)
 		return 1
 	}
-	placed, err := restore.SessionOpts(ctx, st, sid, *to, *inPlace, *fh)
+	placed, err := restore.SessionOptions(ctx, st, sid, *to, restore.Options{InPlace: *inPlace, FileHistory: *fh, ProfileDirs: *pd})
 	if err != nil {
 		fmt.Fprintf(errw, "restore: %v\n", err)
 		return 1

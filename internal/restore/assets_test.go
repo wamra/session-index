@@ -91,3 +91,96 @@ func TestRestoreWritesAssetsWithModeAndMtime(t *testing.T) {
 		t.Fatalf("%q %v", b, err)
 	}
 }
+
+func TestRestoreProfileDirs(t *testing.T) {
+	st := openStore(t)
+	prof := t.TempDir()
+	root := filepath.Join(prof, "projects")
+	os.MkdirAll(root, 0o755)
+	mt := time.Unix(1700000000, 555555500)
+	type f struct {
+		rel     string // under the profile
+		mode    os.FileMode
+		content string
+	}
+	files := []f{
+		{filepath.Join("plans", "my-plan.md"), 0o644, "# plan"},
+		{filepath.Join("paste-cache", "0123456789abcdef.txt"), 0o600, "pasted"},
+		{filepath.Join("tasks", sid, "1.json"), 0o640, `{"id":1}`},
+		{filepath.Join("tasks", sid, ".highwatermark"), 0o600, "1"},
+		{filepath.Join("uploads", sid, "a.png"), 0o644, "\x89PNG bytes"},
+	}
+	for _, c := range files {
+		p := filepath.Join(prof, c.rel)
+		writeFile(t, p, c.content)
+		os.Chmod(p, c.mode)
+		os.Chtimes(p, mt, mt)
+	}
+	if _, err := ingest.Sweep(context.Background(), st, root, "p"); err != nil {
+		t.Fatal(err)
+	}
+	check := func(to string, rels ...string) {
+		t.Helper()
+		for _, c := range files {
+			want := false
+			for _, r := range rels {
+				want = want || r == c.rel
+			}
+			got := filepath.Join(to, c.rel)
+			fi, err := os.Stat(got)
+			if !want {
+				if err == nil {
+					t.Errorf("%s restored but must not be", c.rel)
+				}
+				continue
+			}
+			if err != nil {
+				t.Errorf("%s: %v", c.rel, err)
+				continue
+			}
+			b, _ := os.ReadFile(got)
+			if string(b) != c.content || fi.Mode().Perm() != portableMode(c.mode) || !fi.ModTime().Equal(mt) {
+				t.Errorf("%s: content %q mode %o mtime %v", c.rel, b, fi.Mode().Perm(), fi.ModTime())
+			}
+		}
+	}
+	ctx := context.Background()
+
+	// pseudo-sessions restore without a flag
+	to := t.TempDir()
+	for _, id := range []string{"plans:p", "paste-cache:p"} {
+		if _, err := Session(ctx, st, id, to, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	check(to, files[0].rel, files[1].rel)
+
+	// session-scoped uploads/tasks need the flag
+	if _, err := Session(ctx, st, sid, t.TempDir(), false); err == nil {
+		t.Fatal("expected no files for the session without the flag")
+	}
+	to = t.TempDir()
+	if _, err := SessionOptions(ctx, st, sid, to, Options{FileHistory: true}); err == nil {
+		t.Fatal("file-history alone must not restore uploads/tasks")
+	}
+	placed, err := SessionOptions(ctx, st, sid, to, Options{ProfileDirs: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(placed) != 3 {
+		t.Fatalf("placed %v", placed)
+	}
+	check(to, files[2].rel, files[3].rel, files[4].rel)
+
+	// in place puts files back at their original paths
+	for _, c := range files {
+		os.Remove(filepath.Join(prof, c.rel))
+	}
+	if _, err := SessionOptions(ctx, st, sid, "", Options{InPlace: true, ProfileDirs: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Session(ctx, st, "plans:p", "", true); err != nil {
+		t.Fatal(err)
+	}
+	check(prof, files[0].rel, files[2].rel, files[3].rel, files[4].rel)
+}

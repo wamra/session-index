@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wamra/session-index/internal/paths"
 	"github.com/wamra/session-index/internal/store"
 	"github.com/wamra/session-index/internal/zst"
 )
@@ -60,7 +61,18 @@ type querier interface {
 // transaction and validated before any file is written. It returns the paths
 // placed by this call.
 func Session(ctx context.Context, st *store.Store, sessionID, toDir string, inPlace bool) ([]string, error) {
-	return SessionOpts(ctx, st, sessionID, toDir, inPlace, false)
+	return SessionOptions(ctx, st, sessionID, toDir, Options{InPlace: inPlace})
+}
+
+// Options selects what SessionOptions restores and where.
+type Options struct {
+	// InPlace writes the files to their original paths instead of under toDir.
+	InPlace bool
+	// FileHistory also writes the session's file-history snapshots.
+	FileHistory bool
+	// ProfileDirs also writes the session's uploads/ and tasks/ files, and
+	// implies FileHistory.
+	ProfileDirs bool
 }
 
 // SessionOpts is Session with the file-history switch: snapshots under the
@@ -69,6 +81,15 @@ func Session(ctx context.Context, st *store.Store, sessionID, toDir string, inPl
 // assets are written in the same tree, and every file gets its original mode
 // (0600 when unknown) and mtime.
 func SessionOpts(ctx context.Context, st *store.Store, sessionID, toDir string, inPlace, withFileHistory bool) ([]string, error) {
+	return SessionOptions(ctx, st, sessionID, toDir, Options{InPlace: inPlace, FileHistory: withFileHistory})
+}
+
+// SessionOptions is Session with the optional asset groups of Options.
+// Pseudo-sessions such as "plans:<profile>" restore their files without any
+// option.
+func SessionOptions(ctx context.Context, st *store.Store, sessionID, toDir string, opts Options) ([]string, error) {
+	inPlace := opts.InPlace
+	withFileHistory := opts.FileHistory || opts.ProfileDirs
 	tx, err := st.DB().BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, err
@@ -79,7 +100,7 @@ func SessionOpts(ctx context.Context, st *store.Store, sessionID, toDir string, 
 	if err != nil {
 		return nil, err
 	}
-	assets, err := sessionAssets(ctx, tx, sessionID, withFileHistory)
+	assets, err := sessionAssets(ctx, tx, sessionID, withFileHistory, opts.ProfileDirs)
 	if err != nil {
 		return nil, err
 	}
@@ -363,7 +384,7 @@ func finishTemp(tmp *os.File, mode, mtime int64) error {
 	return nil
 }
 
-func sessionAssets(ctx context.Context, q querier, sessionID string, withFileHistory bool) ([]assetRow, error) {
+func sessionAssets(ctx context.Context, q querier, sessionID string, withFileHistory, withProfileDirs bool) ([]assetRow, error) {
 	rows, err := q.QueryContext(ctx, `SELECT id, path, COALESCE(kind,''), mode, mtime, COALESCE(size,0), COALESCE(sha256,''), raw FROM assets
 		WHERE session_id=? AND raw IS NOT NULL ORDER BY path`, sessionID)
 	if err != nil {
@@ -379,6 +400,9 @@ func sessionAssets(ctx context.Context, q querier, sessionID string, withFileHis
 		}
 		a.mode, a.mtime = mode.Int64, mtime.Int64
 		if a.kind == "file-history" && !withFileHistory {
+			continue
+		}
+		if (a.kind == paths.AssetUploads || a.kind == paths.AssetTasks) && !withProfileDirs && !strings.HasPrefix(sessionID, a.kind+":") {
 			continue
 		}
 		out = append(out, a)
@@ -423,8 +447,18 @@ func writeAssetTemp(a assetRow, target string) (string, error) {
 	return tmp.Name(), nil
 }
 
+func isProfileDirKind(kind string) bool {
+	for _, k := range paths.SweptDirs {
+		if k == kind {
+			return true
+		}
+	}
+	return false
+}
+
 // assetRel is an asset's path relative to the tree it came from: for
-// file-history snapshots "file-history/<sid>/...", for memory files
+// file-history snapshots "file-history/<sid>/...", for plans, paste-cache,
+// tasks and uploads files "<kind>/...", for memory files
 // "<slug>/memory/<file>", otherwise it starts at the project slug.
 func assetRel(path, sessionID, kind string) (string, error) {
 	parts := strings.Split(filepath.Clean(path), string(filepath.Separator))
@@ -434,6 +468,21 @@ func assetRel(path, sessionID, kind string) (string, error) {
 		for i := n - 2; i >= 1; i-- {
 			if parts[i] == sessionID && parts[i-1] == "file-history" {
 				return filepath.Join(parts[i-1:]...), nil
+			}
+		}
+	case isProfileDirKind(kind):
+		// session-scoped: <kind>/<sid>/...; pseudo-session: <kind>/... (the
+		// nearest enclosing directory named like the kind)
+		for i := n - 2; i >= 1; i-- {
+			if parts[i-1] == kind && parts[i] == sessionID {
+				return filepath.Join(parts[i-1:]...), nil
+			}
+		}
+		if strings.HasPrefix(sessionID, kind+":") {
+			for i := n - 2; i >= 0; i-- {
+				if parts[i] == kind {
+					return filepath.Join(parts[i:]...), nil
+				}
 			}
 		}
 	case strings.HasPrefix(sessionID, "memory:"):
