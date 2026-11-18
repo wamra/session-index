@@ -12,8 +12,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wamra/session-index/internal/ingest"
 	"github.com/wamra/session-index/internal/paths"
 	"github.com/wamra/session-index/internal/provider"
+	"github.com/wamra/session-index/internal/restore"
 	"github.com/wamra/session-index/internal/search"
 	"github.com/wamra/session-index/internal/store"
 )
@@ -186,7 +188,7 @@ func cmdSearch(args []string, out, errw io.Writer) int {
 			date = date[:10]
 		}
 		sid := h.SessionID
-		if len(sid) > 8 {
+		if len(sid) > 8 && !strings.Contains(sid, ":") { // synthetic ids (plans:..., memory:...) stay whole
 			sid = sid[:8]
 		}
 		fmt.Fprintf(out, "[%.3f] %s %s %s %s — %s — %s%s\n", h.Score, date, h.Profile, sid, h.Project, h.Title, kindMarker(h.Kind), snippet(h.Chunk, 160))
@@ -221,6 +223,26 @@ type shownMsg struct {
 	summaries            []string
 }
 
+// showDoc prints an archived text file of a profile folder (a plan) by its
+// per-file session id.
+func showDoc(ctx context.Context, st *store.Store, sid, rel string, out, errw io.Writer) int {
+	if !ingest.IsTextAsset(rel) {
+		fmt.Fprintf(errw, "show: %s is not a text file; use `session-index restore %s --to DIR`\n", sid, sid)
+		return 1
+	}
+	data, err := restore.Doc(ctx, st, sid)
+	if err != nil {
+		fmt.Fprintf(errw, "show: %v\n", err)
+		return 1
+	}
+	text := strings.ToValidUTF8(string(data), "")
+	if !strings.HasSuffix(text, "\n") {
+		text += "\n"
+	}
+	fmt.Fprint(out, text)
+	return 0
+}
+
 func cmdShow(args []string, out, errw io.Writer) int {
 	fs := newFlags("show", errw)
 	around := fs.String("around", "", "record UUID to center on")
@@ -242,6 +264,9 @@ func cmdShow(args []string, out, errw io.Writer) int {
 	if err != nil {
 		fmt.Fprintln(errw, err)
 		return 1
+	}
+	if _, rel := paths.SplitDocSession(sid); rel != "" {
+		return showDoc(ctx, st, sid, rel, out, errw)
 	}
 	if *changes {
 		return showChanges(ctx, st.DB(), sid, out, errw)

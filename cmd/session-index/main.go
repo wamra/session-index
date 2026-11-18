@@ -46,7 +46,7 @@ func init() {
 		"show":            {cmdShow, "show SESSION_ID [--around UUID] [--n 20] [--changes]"},
 		"files":           {cmdFiles, "files SUBSTRING [--profile NAME] [--limit 200] [--json]"},
 		"summarize":       {cmdSummarize, "summarize [--max N] [--budget 60s] [--model NAME] [--parallel P] [--kind tool,change,asset] [--retry-failed [REASON]]"},
-		"restore":         {cmdRestore, "restore SESSION_ID|plans:PROFILE|paste-cache:PROFILE|tasks:PROFILE|uploads:PROFILE (--to DIR | --in-place) [--with-file-history] [--with-profile-dirs]"},
+		"restore":         {cmdRestore, "restore SESSION_ID|plans:PROFILE[/FILE]|paste-cache:PROFILE|tasks:PROFILE|uploads:PROFILE (--to DIR | --in-place) [--with-file-history] [--with-profile-dirs]"},
 		"stats":           {cmdStats, "stats"},
 		"doctor":          {cmdDoctor, "doctor [--full]"},
 		"install-hooks":   {cmdInstallHooks, "install-hooks [--settings PATH] [--interval-min 10] [--dry-run] [--skill] [--skill-all-profiles]"},

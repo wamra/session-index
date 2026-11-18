@@ -543,14 +543,17 @@ func TestPlanChunkedAndSession(t *testing.T) {
 	if _, err := Sweep(context.Background(), st, proj, "p1"); err != nil {
 		t.Fatal(err)
 	}
-	n := count(t, st, `SELECT count(*) FROM chunks WHERE kind='plan' AND session_id='plans:p1' AND embedded_at IS NULL`)
+	n := count(t, st, `SELECT count(*) FROM chunks WHERE kind='plan' AND session_id='plans:p1/calm-river.md' AND embedded_at IS NULL`)
 	if n < 2 || count(t, st, `SELECT count(*) FROM chunks`) != n {
 		t.Fatalf("plan chunks %d of %d", n, count(t, st, `SELECT count(*) FROM chunks`))
 	}
 	var title, kind string
 	var project *string
-	if err := st.DB().QueryRow(`SELECT title, kind, project FROM sessions WHERE session_id='plans:p1'`).Scan(&title, &kind, &project); err != nil || title != "plans" || kind != "plan" || project != nil {
+	if err := st.DB().QueryRow(`SELECT title, kind, project FROM sessions WHERE session_id='plans:p1/calm-river.md'`).Scan(&title, &kind, &project); err != nil || title != "Plan: zebrafish ledger migration" || kind != "plan" || project != nil {
 		t.Fatalf("%q %q %v %v", title, kind, project, err)
+	}
+	if count(t, st, `SELECT count(*) FROM sessions WHERE session_id='plans:p1'`) != 0 {
+		t.Fatal("plans must not share one session row")
 	}
 	if count(t, st, `SELECT count(*) FROM sessions WHERE session_id='paste-cache:p1'`) != 0 {
 		t.Fatal("paste-cache must not get a session row")
@@ -574,6 +577,9 @@ func TestPlanChunkedAndSession(t *testing.T) {
 	if n := count(t, st, `SELECT count(*) FROM chunk_fts WHERE chunk_fts MATCH 'quokka'`); n != 0 {
 		t.Fatalf("stale fts %d", n)
 	}
+	if count(t, st, `SELECT count(*) FROM sessions WHERE session_id='plans:p1/calm-river.md' AND title='Plan: narwhal cache'`) != 1 {
+		t.Fatal("session title must follow the plan's heading")
+	}
 	// a plan deleted from disk keeps its chunks
 	os.Remove(p)
 	Sweep(context.Background(), st, proj, "p1")
@@ -584,7 +590,7 @@ func TestPlanChunkedAndSession(t *testing.T) {
 	if _, err := Rederive(context.Background(), st, ""); err != nil {
 		t.Fatal(err)
 	}
-	if count(t, st, `SELECT count(*) FROM chunks WHERE kind='plan'`) != 1 || count(t, st, `SELECT count(*) FROM sessions WHERE session_id='plans:p1' AND kind='plan'`) != 1 {
+	if count(t, st, `SELECT count(*) FROM chunks WHERE kind='plan'`) != 1 || count(t, st, `SELECT count(*) FROM sessions WHERE kind='plan'`) != 1 || count(t, st, `SELECT count(*) FROM chunks WHERE session_id='plans:p1/calm-river.md'`) != 1 {
 		t.Fatal("after rederive")
 	}
 	if _, err := RebuildExtras(context.Background(), st); err != nil {
@@ -598,5 +604,60 @@ func TestPlanChunkedAndSession(t *testing.T) {
 	}
 	if count(t, st, `SELECT count(*) FROM chunks WHERE kind='plan'`) != 1 || count(t, st, `SELECT count(*) FROM pragma_foreign_key_check`) != 0 {
 		t.Fatal("after repair")
+	}
+}
+
+// Plans archived under the shared session id "plans:<profile>" get their own
+// session id on the next sweep, from the stored bytes.
+func TestPlanBackfillPerPlanSession(t *testing.T) {
+	st, _ := setup(t)
+	prof := t.TempDir()
+	proj := filepath.Join(prof, "projects")
+	os.MkdirAll(proj, 0o755)
+	a := filepath.Join(prof, "plans", "calm-river.md")
+	b := filepath.Join(prof, "plans", "quiet-lake.md")
+	writeMode(t, a, "# Plan: zebrafish ledger migration\n\nThe zebrafish rollout copies the ledger tables in batches.", 0o644, time.Now())
+	writeMode(t, b, "No heading here, only notes about the quokka checksum of the ledger.", 0o644, time.Now())
+	ctx := context.Background()
+	if _, err := Sweep(ctx, st, proj, "p1"); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(t, st, `SELECT count(*) FROM sessions WHERE kind='plan' AND session_id IN ('plans:p1/calm-river.md','plans:p1/quiet-lake.md')`); n != 2 {
+		t.Fatalf("per-plan sessions %d", n)
+	}
+	if count(t, st, `SELECT count(*) FROM sessions WHERE session_id='plans:p1/quiet-lake.md' AND title='quiet-lake.md'`) != 1 {
+		t.Fatal("a plan without a heading is titled by its file name")
+	}
+	// put the archive back into the shared-session shape
+	for _, q := range []string{
+		`UPDATE chunks SET session_id='plans:p1' WHERE kind='plan'`,
+		`DELETE FROM sessions WHERE kind='plan'`,
+		`INSERT INTO sessions(session_id, title, kind, message_count, profile) VALUES('plans:p1','plans','plan',0,'p1')`,
+	} {
+		if _, err := st.DB().Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	os.Remove(b) // gone from disk: the backfill reads the archived bytes
+	sum, err := Sweep(ctx, st, proj, "p1")
+	if err != nil || sum.AssetsArchived != 0 {
+		t.Fatalf("%+v %v", sum, err)
+	}
+	if n := count(t, st, `SELECT count(*) FROM sessions WHERE kind='plan'`); n != 2 || count(t, st, `SELECT count(*) FROM sessions WHERE session_id='plans:p1'`) != 0 {
+		t.Fatalf("plan sessions after backfill %d", n)
+	}
+	if n := count(t, st, `SELECT count(*) FROM chunks WHERE kind='plan'`); n != 2 || count(t, st, `SELECT count(*) FROM chunks WHERE session_id='plans:p1'`) != 0 {
+		t.Fatalf("plan chunks after backfill %d", n)
+	}
+	if count(t, st, `SELECT count(*) FROM chunks WHERE session_id='plans:p1/quiet-lake.md' AND text LIKE '%quokka%'`) != 1 {
+		t.Fatal("chunk of the deleted plan")
+	}
+	if count(t, st, `SELECT count(*) FROM chunk_fts`) != 2 || count(t, st, `SELECT count(*) FROM chunk_fts WHERE chunk_fts MATCH 'quokka'`) != 1 {
+		t.Fatal("chunk_fts after backfill")
+	}
+	// a third sweep changes nothing
+	before := count(t, st, `SELECT max(id) FROM chunks`)
+	if _, err := Sweep(ctx, st, proj, "p1"); err != nil || count(t, st, `SELECT max(id) FROM chunks`) != before {
+		t.Fatalf("backfill ran again: %v", err)
 	}
 }

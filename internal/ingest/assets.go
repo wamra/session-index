@@ -208,7 +208,7 @@ func archiveAssetNow(ctx context.Context, st *store.Store, path string, info pat
 		}
 	}
 	if info.Kind == paths.AssetPlans && IsTextAsset(path) {
-		if err = rederivePlan(ctx, conn, id, info.SessionID, filepath.Base(path), profile, mtime, data); err != nil {
+		if err = rederivePlan(ctx, conn, id, info.SessionID, path, profile, mtime, data); err != nil {
 			return res, err
 		}
 	}
@@ -283,6 +283,9 @@ func SweepAssets(ctx context.Context, st *store.Store, root, profDir, profile st
 			}
 		}
 	}
+	if err := backfillPlanSessions(ctx, st); err != nil {
+		return err
+	}
 	if _, err := MarkBinaryAssets(ctx, st.DB()); err != nil {
 		return err
 	}
@@ -300,13 +303,21 @@ func rederiveMemory(ctx context.Context, tx execQuerier, assetID int64, sessionI
 	return rederiveDoc(ctx, tx, assetID, sessionID, slug, "memory", "memory", profile, mtime, texts)
 }
 
-// rederivePlan (re)creates the synthetic session row ("plans:<profile>") and
-// the chunks of one plan file. Each chunk starts with the file name and, when
-// the chunk does not contain it, the plan's heading, so a hit in the middle of
-// a plan still says which plan it is.
-func rederivePlan(ctx context.Context, tx execQuerier, assetID int64, sessionID, name, profile string, mtime int64, data []byte) error {
+// rederivePlan (re)creates the synthetic session row and the chunks of one
+// plan file. Every plan has its own session id (paths.DocSession of
+// sessionID, the pseudo-session "plans:<profile>" its asset is stored under),
+// so a search lists each matching plan; the row's title is the plan's heading,
+// or the file name. Each chunk starts with the file name and, when the chunk
+// does not contain it, the plan's heading, so a hit in the middle of a plan
+// still says which plan it is.
+func rederivePlan(ctx context.Context, tx execQuerier, assetID int64, sessionID, path, profile string, mtime int64, data []byte) error {
+	name := filepath.Base(path)
 	text := strings.ToValidUTF8(string(data), "")
 	heading := planHeading(text)
+	title := strings.TrimSpace(strings.TrimLeft(heading, "#"))
+	if title == "" {
+		title = name
+	}
 	var texts []string
 	for _, c := range chunkTexts([]string{text}) {
 		if heading != "" && !strings.Contains(c, heading) {
@@ -314,7 +325,101 @@ func rederivePlan(ctx context.Context, tx execQuerier, assetID int64, sessionID,
 		}
 		texts = append(texts, name+"\n"+c)
 	}
-	return rederiveDoc(ctx, tx, assetID, sessionID, "", "plans", "plan", profile, mtime, texts)
+	return rederiveDoc(ctx, tx, assetID, paths.DocSession(sessionID, paths.AssetPlans, path), "", title, "plan", profile, mtime, texts)
+}
+
+// backfillPlanSessions derives the chunks of every archived plan file that
+// has no session row of its own, from the stored bytes, and then drops the
+// row "plans:<profile>" that all plans of a profile shared before each plan
+// got its own session id.
+func backfillPlanSessions(ctx context.Context, st *store.Store) error {
+	db := st.DB()
+	have := map[string]bool{}
+	var shared []string
+	rows, err := db.QueryContext(ctx, `SELECT session_id FROM sessions WHERE kind='plan'`)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err != nil {
+			rows.Close()
+			return err
+		}
+		have[s] = true
+		if _, rel := paths.SplitDocSession(s); rel == "" {
+			shared = append(shared, s)
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	type plan struct {
+		id                 int64
+		sid, path, profile sql.NullString
+		mtime              int64
+	}
+	var todo []plan
+	rows, err = db.QueryContext(ctx, `SELECT id, session_id, path, profile, mtime FROM assets WHERE kind=? AND raw IS NOT NULL ORDER BY id`, paths.AssetPlans)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var p plan
+		if err := rows.Scan(&p.id, &p.sid, &p.path, &p.profile, &p.mtime); err != nil {
+			rows.Close()
+			return err
+		}
+		if IsTextAsset(p.path.String) && !have[paths.DocSession(p.sid.String, paths.AssetPlans, p.path.String)] {
+			todo = append(todo, p)
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(todo) == 0 && len(shared) == 0 {
+		return nil
+	}
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			conn.ExecContext(context.Background(), `ROLLBACK`)
+		}
+	}()
+	for _, p := range todo {
+		var raw []byte
+		if err := conn.QueryRowContext(ctx, `SELECT raw FROM assets WHERE id=?`, p.id).Scan(&raw); err != nil {
+			return err
+		}
+		data, err := zst.Decompress(raw)
+		if err != nil {
+			return fmt.Errorf("plans asset %d: %w", p.id, err)
+		}
+		if err := rederivePlan(ctx, conn, p.id, p.sid.String, p.path.String, p.profile.String, p.mtime, data); err != nil {
+			return err
+		}
+	}
+	for _, s := range shared {
+		if _, err := conn.ExecContext(ctx, `DELETE FROM sessions WHERE session_id=? AND kind='plan'
+			AND NOT EXISTS (SELECT 1 FROM chunks WHERE session_id=?)`, s, s); err != nil {
+			return err
+		}
+	}
+	if _, err := conn.ExecContext(ctx, `COMMIT`); err != nil {
+		return err
+	}
+	committed = true
+	return nil
 }
 
 // maxPlanHeading bounds the heading repeated in every chunk of a plan.

@@ -241,3 +241,31 @@ func TestClassifyProfileDir(t *testing.T) {
 		t.Errorf("SweptDirs = %v", SweptDirs)
 	}
 }
+
+func TestDocSession(t *testing.T) {
+	prof := filepath.Join(string(filepath.Separator), "home", "u", ".claude")
+	for _, c := range []struct{ rel, want string }{
+		{"foo.md", "plans:mac/foo.md"},
+		{filepath.Join("sub", "foo.md"), "plans:mac/sub/foo.md"},
+	} {
+		got := DocSession("plans:mac", AssetPlans, filepath.Join(prof, AssetPlans, c.rel))
+		if got != c.want {
+			t.Errorf("DocSession(%q) = %q, want %q", c.rel, got, c.want)
+		}
+		sid, rel := SplitDocSession(got)
+		if sid != "plans:mac" || rel != c.want[len("plans:mac/"):] {
+			t.Errorf("SplitDocSession(%q) = %q, %q", got, sid, rel)
+		}
+	}
+	if got := ProfileDirRel("foo.md", AssetPlans); got != "foo.md" {
+		t.Errorf("ProfileDirRel without the folder = %q", got)
+	}
+	for _, id := range []string{"plans:mac", "memory:proj/x", "0123-abcd", "a/b"} {
+		if sid, rel := SplitDocSession(id); sid != id || rel != "" {
+			t.Errorf("SplitDocSession(%q) = %q, %q", id, sid, rel)
+		}
+	}
+	if !IsProfileDirSession("paste-cache:mac") || IsProfileDirSession("memory:proj") || IsProfileDirSession("plans") {
+		t.Error("IsProfileDirSession")
+	}
+}

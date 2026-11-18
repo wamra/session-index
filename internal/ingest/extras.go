@@ -288,7 +288,7 @@ func rederiveAssetChunks(ctx context.Context, conn *sql.Conn) error {
 		}
 		if d.kind == paths.AssetPlans {
 			if IsTextAsset(d.path.String) {
-				err = rederivePlan(ctx, conn, d.id, d.sid.String, baseName(d.path.String), d.profile.String, d.mtime, data)
+				err = rederivePlan(ctx, conn, d.id, d.sid.String, d.path.String, d.profile.String, d.mtime, data)
 			}
 		} else {
 			slug := d.sid.String

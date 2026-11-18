@@ -56,13 +56,13 @@ function formatHits(stdout: string): string {
   if (hits.length === 0) return 'No matching sessions.'
   const lines = hits.map((h, n) =>
     [
-      `${n + 1}. ${h.session_id.slice(0, 12)}  ${(h.ts ?? '').slice(0, 10)}  ${h.profile ?? ''}  ${one(h.project, 40)}`,
+      `${n + 1}. ${h.session_id.includes(':') ? h.session_id : h.session_id.slice(0, 12)}  ${(h.ts ?? '').slice(0, 10)}  ${h.profile ?? ''}  ${one(h.project, 40)}`,
       `   title: ${one(h.title, 80) || '(untitled)'}  role: ${h.role ?? '?'}  score: ${(h.score ?? 0).toFixed(3)}`,
       `   ${one(h.chunk, 300)}`,
     ].join('\n'),
   )
   const route = parsed.route ? `route: ${parsed.route}\n` : ''
-  return `${route}${lines.join('\n')}\n\nRead one with the show tool (session_id prefix is enough). Restore transcripts only with 'session-index restore SESSION_ID --to DIR', never --in-place without asking.`
+  return `${route}${lines.join('\n')}\n\nRead one with the show tool (session_id prefix is enough; for a plan pass the whole plans:... id). Restore transcripts only with 'session-index restore SESSION_ID --to DIR', never --in-place without asking.`
 }
 
 async function run($: EngineInterface, bin: string, argv: string[]) {
@@ -102,7 +102,7 @@ export const register: Register = (on, options) => {
     await $.tool.register({
       name: 'show',
       description:
-        'Read messages from one archived session found by the search tool. Pass a session id prefix; optionally a message uuid to center a window on (around) and the window size (n).',
+        'Read messages from one archived session found by the search tool. Pass a session id prefix; optionally a message uuid to center a window on (around) and the window size (n). For a plan hit pass its whole plans:... id: the archived plan file is returned.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -131,7 +131,7 @@ export const register: Register = (on, options) => {
 
   on('tool.call', { tool: SHOW }, async ($, e) => {
     const i = e as unknown as ShowInput
-    if (typeof i.session_id !== 'string' || !/^[0-9a-fA-F-]{4,}$/.test(i.session_id)) return { deny: 'session_id must be a session id prefix (hex and dashes).' }
+    if (typeof i.session_id !== 'string' || !/^([0-9a-fA-F-]{4,}|plans:\S+)$/.test(i.session_id)) return { deny: 'session_id must be a session id prefix (hex and dashes) or a plans:... id from a plan hit.' }
     const argv = ['show', i.session_id, '--n', String(Math.min(Math.max(i.n ?? 20, 1), 100))]
     if (i.around) argv.push('--around', i.around)
     const r = await run($, bin, argv)

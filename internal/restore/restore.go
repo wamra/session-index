@@ -100,9 +100,15 @@ func SessionOptions(ctx context.Context, st *store.Store, sessionID, toDir strin
 	if err != nil {
 		return nil, err
 	}
-	assets, err := sessionAssets(ctx, tx, sessionID, withFileHistory, opts.ProfileDirs)
+	// A per-file id ("plans:<profile>/<name>") names one file of the
+	// pseudo-session its asset is stored under.
+	assetSID, docRel := paths.SplitDocSession(sessionID)
+	assets, err := sessionAssets(ctx, tx, assetSID, withFileHistory, opts.ProfileDirs)
 	if err != nil {
 		return nil, err
+	}
+	if docRel != "" {
+		assets = docAssets(assets, docRel)
 	}
 	if len(files) == 0 && len(assets) == 0 {
 		return nil, fmt.Errorf("restore: no files for session %s", sessionID)
@@ -126,7 +132,7 @@ func SessionOptions(ctx context.Context, st *store.Store, sessionID, toDir strin
 			targets[i] = a.path
 			continue
 		}
-		rel, err := assetRel(a.path, sessionID, a.kind)
+		rel, err := assetRel(a.path, assetSID, a.kind)
 		if err != nil {
 			return nil, err
 		}
@@ -408,6 +414,42 @@ func sessionAssets(ctx context.Context, q querier, sessionID string, withFileHis
 		out = append(out, a)
 	}
 	return out, rows.Err()
+}
+
+// docAssets keeps the assets whose path below their profile folder is rel.
+func docAssets(assets []assetRow, rel string) []assetRow {
+	var out []assetRow
+	for _, a := range assets {
+		if paths.ProfileDirRel(a.path, a.kind) == rel {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// Doc returns the archived bytes of the file a per-file id
+// ("plans:<profile>/<name>") names; the newest one when the profile folder
+// was archived from more than one location.
+func Doc(ctx context.Context, st *store.Store, id string) ([]byte, error) {
+	sid, rel := paths.SplitDocSession(id)
+	if rel == "" {
+		return nil, fmt.Errorf("restore: %s does not name a file", id)
+	}
+	assets, err := sessionAssets(ctx, st.DB(), sid, false, false)
+	if err != nil {
+		return nil, err
+	}
+	assets = docAssets(assets, rel)
+	if len(assets) == 0 {
+		return nil, fmt.Errorf("restore: no archived file for %s", id)
+	}
+	newest := assets[0]
+	for _, a := range assets[1:] {
+		if a.mtime > newest.mtime {
+			newest = a
+		}
+	}
+	return assetBytes(newest)
 }
 
 // assetBytes decompresses an asset and verifies its size and sha256.

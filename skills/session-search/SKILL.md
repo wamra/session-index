@@ -24,7 +24,7 @@ session-index search "<query>" [--mode fts] [--profile NAME] [--since 30d] [--js
 
 Each hit line shows: score, date, profile, short session id, project, title, snippet.
 
-Plan files (`~/.claude/plans/*.md`) are indexed too. A plan hit has the session id `plans:<profile>` and a snippet that starts with `[plan]` and the plan's file name; `--kind plan` returns only plans.
+Plan files (`~/.claude/plans/*.md`) are indexed too. Each plan is its own hit: the session id is `plans:<profile>/<file name>`, the title is the plan's heading, and the snippet starts with `[plan]` and the file name; `--kind plan` returns only plans.
 
 ## After finding hits
 
@@ -32,7 +32,7 @@ Plan files (`~/.claude/plans/*.md`) are indexed too. A plan hit has the session 
 2. Offer `session-index show SESSION_ID` (prefix of a session id is accepted; `--around UUID` and `--n N` select a window of messages) to read the conversation.
 3. Offer `session-index restore SESSION_ID --to DIR` to recreate the transcript files of a deleted or missing session under DIR.
 
-For a plan hit, read `~/.claude/plans/<file name>` when the file still exists; otherwise `session-index restore plans:<profile> --to DIR` writes every archived plan of that profile under `DIR/plans/`. `show` has nothing to print for a plan.
+For a plan hit, `session-index show 'plans:<profile>/<file name>'` prints the archived plan (the whole file; `--around` and `--n` do not apply), also after Claude Code has deleted the file. `session-index restore 'plans:<profile>/<file name>' --to DIR` writes that plan to `DIR/plans/`; `restore plans:<profile> --to DIR` writes every archived plan of the profile.
 
 `show` and `restore` read this machine's archive. Sessions from other profiles appear there after `session-index sweep --all-profiles` has been run on this machine; if `show` reports no messages for a hit from another profile, run that sweep first.
 

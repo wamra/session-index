@@ -155,6 +155,16 @@ func TestRestoreProfileDirs(t *testing.T) {
 	}
 	check(to, files[0].rel, files[1].rel)
 
+	// one plan by its own id; an unknown plan is an error
+	to = t.TempDir()
+	if _, err := Session(ctx, st, "plans:p/my-plan.md", to, false); err != nil {
+		t.Fatal(err)
+	}
+	check(to, files[0].rel)
+	if _, err := Session(ctx, st, "plans:p/nope.md", t.TempDir(), false); err == nil {
+		t.Fatal("expected an error for an unknown plan")
+	}
+
 	// session-scoped uploads/tasks need the flag
 	if _, err := Session(ctx, st, sid, t.TempDir(), false); err == nil {
 		t.Fatal("expected no files for the session without the flag")

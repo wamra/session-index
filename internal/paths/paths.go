@@ -239,3 +239,44 @@ func ClassifyProfileDir(dir, kind, profile, path string) (AssetInfo, bool) {
 	}
 	return AssetInfo{SessionID: kind + ":" + profile, Kind: kind}, true
 }
+
+// IsProfileDirSession reports whether id is a pseudo-session id of one of the
+// folders in SweptDirs ("<kind>:<profile>") or a per-file id below it.
+func IsProfileDirSession(id string) bool {
+	for _, k := range SweptDirs {
+		if strings.HasPrefix(id, k+":") {
+			return true
+		}
+	}
+	return false
+}
+
+// ProfileDirRel returns path below the nearest enclosing directory named
+// kind, with forward slashes; the base name when there is no such directory.
+func ProfileDirRel(path, kind string) string {
+	parts := strings.Split(filepath.Clean(path), string(filepath.Separator))
+	for i := len(parts) - 2; i >= 0; i-- {
+		if parts[i] == kind {
+			return strings.Join(parts[i+1:], "/")
+		}
+	}
+	return parts[len(parts)-1]
+}
+
+// DocSession is the per-file session id of a searchable file in a profile
+// folder: "<kind>:<profile>/<path below the folder>". sessionID is the
+// pseudo-session id from ClassifyProfileDir.
+func DocSession(sessionID, kind, path string) string {
+	return sessionID + "/" + ProfileDirRel(path, kind)
+}
+
+// SplitDocSession splits a per-file id into the pseudo-session id and the
+// path below the folder. Any other id comes back unchanged with rel "".
+func SplitDocSession(id string) (sessionID, rel string) {
+	if IsProfileDirSession(id) {
+		if i := strings.IndexByte(id, '/'); i >= 0 {
+			return id[:i], id[i+1:]
+		}
+	}
+	return id, ""
+}

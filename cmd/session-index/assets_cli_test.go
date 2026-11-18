@@ -196,6 +196,7 @@ func TestCLISearchFindsPlans(t *testing.T) {
 	p := filepath.Join(filepath.Dir(root), "plans", "calm-river.md")
 	os.MkdirAll(filepath.Dir(p), 0o755)
 	os.WriteFile(p, []byte("# Plan: ledger migration\n\nThe wombatledger tables are copied in batches before the cutover."), 0o644)
+	os.WriteFile(filepath.Join(filepath.Dir(p), "quiet-lake.md"), []byte("# Plan: rollback\n\nRestoring the wombatledger tables after a failed cutover."), 0o644)
 	srv := fakeOllama(t)
 	t.Setenv("SESSION_INDEX_OLLAMA", srv.URL)
 	if code, out, e := runCLI(t, "sweep", "--embed"); code != 0 {
@@ -203,10 +204,13 @@ func TestCLISearchFindsPlans(t *testing.T) {
 	}
 	profile, _ := ownProfile()
 	code, out, _ := runCLI(t, "search", "wombatledger", "--mode", "fts", "--json")
-	if code != 0 || !strings.Contains(out, `"kind": "plan"`) || !strings.Contains(out, "plans:"+profile) {
+	// each plan is its own hit, titled by its heading
+	calm, quiet := "plans:"+profile+"/calm-river.md", "plans:"+profile+"/quiet-lake.md"
+	if code != 0 || !strings.Contains(out, `"kind": "plan"`) || !strings.Contains(out, `"`+calm+`"`) || !strings.Contains(out, `"`+quiet+`"`) ||
+		!strings.Contains(out, `"title": "Plan: ledger migration"`) || !strings.Contains(out, `"title": "Plan: rollback"`) {
 		t.Fatalf("plan search: %q", out)
 	}
-	if code, out, _ = runCLI(t, "search", "wombatledger", "--mode", "fts"); code != 0 || !strings.Contains(out, "[plan] calm-river.md") {
+	if code, out, _ = runCLI(t, "search", "wombatledger", "--mode", "fts"); code != 0 || !strings.Contains(out, "[plan] calm-river.md") || !strings.Contains(out, " "+calm+" ") {
 		t.Fatalf("plan marker: %q", out)
 	}
 	if code, out, _ = runCLI(t, "search", "wombatledger", "--mode", "fts", "--kind", "plan", "--json"); code != 0 || !strings.Contains(out, `"kind": "plan"`) {
@@ -219,8 +223,33 @@ func TestCLISearchFindsPlans(t *testing.T) {
 	defer st.Close()
 	var n int
 	st.DB().QueryRow(`SELECT count(*) FROM chunks WHERE kind='plan' AND embedded_at IS NOT NULL`).Scan(&n)
-	if n != 1 {
+	if n != 2 {
 		t.Fatalf("embedded plan chunks %d", n)
+	}
+	// show prints an archived plan, also by a unique id prefix
+	for _, id := range []string{calm, "plans:" + profile + "/calm"} {
+		if code, out, e := runCLI(t, "show", id); code != 0 || !strings.Contains(out, "# Plan: ledger migration") || !strings.Contains(out, "copied in batches before the cutover.") || strings.Contains(out, "rollback") {
+			t.Fatalf("show %s: %d %q %s", id, code, out, e)
+		}
+	}
+	// restore: one plan by its id, every plan by the profile's id
+	one, all := t.TempDir(), t.TempDir()
+	if code, _, e := runCLI(t, "restore", calm, "--to", one); code != 0 {
+		t.Fatalf("restore one plan: %d %s", code, e)
+	}
+	if b, err := os.ReadFile(filepath.Join(one, "plans", "calm-river.md")); err != nil || !strings.HasPrefix(string(b), "# Plan: ledger migration") {
+		t.Fatalf("%q %v", b, err)
+	}
+	if _, err := os.Stat(filepath.Join(one, "plans", "quiet-lake.md")); err == nil {
+		t.Fatal("restoring one plan wrote another")
+	}
+	if code, _, e := runCLI(t, "restore", "plans:"+profile, "--to", all); code != 0 {
+		t.Fatalf("restore all plans: %d %s", code, e)
+	}
+	for _, n := range []string{"calm-river.md", "quiet-lake.md"} {
+		if _, err := os.Stat(filepath.Join(all, "plans", n)); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

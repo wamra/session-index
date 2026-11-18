@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/wamra/session-index/internal/paths"
 	"github.com/wamra/session-index/internal/restore"
 )
 
@@ -30,10 +31,15 @@ func cmdRestore(args []string, out, errw io.Writer) int {
 	}
 	defer st.Close()
 	ctx := context.Background()
-	sid, err := resolveSession(ctx, st.DB(), pos[0])
-	if err != nil {
-		fmt.Fprintln(errw, err)
-		return 1
+	// The ids of the profile folders ("plans:<profile>", one plan's
+	// "plans:<profile>/<name>") are taken as given: the first is a prefix of
+	// the second.
+	sid := pos[0]
+	if !paths.IsProfileDirSession(sid) {
+		if sid, err = resolveSession(ctx, st.DB(), sid); err != nil {
+			fmt.Fprintln(errw, err)
+			return 1
+		}
 	}
 	placed, err := restore.SessionOptions(ctx, st, sid, *to, restore.Options{InPlace: *inPlace, FileHistory: *fh, ProfileDirs: *pd})
 	if err != nil {
