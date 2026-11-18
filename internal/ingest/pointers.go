@@ -75,7 +75,9 @@ func ResolvePointers(ctx context.Context, q queryExec) (int, error) {
 			if len(parts) < n {
 				continue
 			}
-			suffix := "/" + strings.Join(parts[len(parts)-n:], "/")
+			// assets.path is in the host's native form, so the suffix is too.
+			sep := string(filepath.Separator)
+			suffix := sep + strings.Join(parts[len(parts)-n:], sep)
 			if q.QueryRowContext(ctx, `SELECT id FROM assets WHERE path LIKE ? ESCAPE '\' ORDER BY id LIMIT 1`, "%"+likeEsc.Replace(suffix)).Scan(&id) == nil {
 				found = true
 				break

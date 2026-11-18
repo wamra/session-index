@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"sort"
 	"testing"
 )
@@ -128,6 +129,9 @@ func TestWalkSkipsUnreadableDir(t *testing.T) {
 	}
 	if err := os.WriteFile(filepath.Join(locked, "inner", "x.jsonl"), []byte("{}\n"), 0o644); err != nil {
 		t.Fatal(err)
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod 000 does not make a directory unreadable on Windows")
 	}
 	if err := os.Chmod(locked, 0o000); err != nil {
 		t.Fatal(err)

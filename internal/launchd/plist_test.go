@@ -8,7 +8,9 @@ import (
 )
 
 func TestPlistContent(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir on Windows
 	p := filepath.Join(t.TempDir(), "LaunchAgents", "x.plist")
 	if err := Write(p, "/opt/bin/session-index", 10); err != nil {
 		t.Fatal(err)
@@ -25,7 +27,7 @@ func TestPlistContent(t *testing.T) {
 		"<key>StartInterval</key>\n\t<integer>600</integer>",
 		"<key>RunAtLoad</key>\n\t<true/>",
 		"StandardOutPath", "StandardErrorPath",
-		"/.claude/cache/session-archive/sweep.log",
+		filepath.Join(home, ".claude", "cache", "session-archive", "sweep.log"),
 	} {
 		if !strings.Contains(s, w) {
 			t.Errorf("missing %q in:\n%s", w, s)

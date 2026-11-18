@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -72,9 +73,14 @@ func TestAssetRoundTripAndKinds(t *testing.T) {
 	if err := st.DB().QueryRow(`SELECT raw, sha256, mode, mtime FROM assets WHERE path=?`, p).Scan(&raw, &shaDB, &mode, &mtime); err != nil {
 		t.Fatal(err)
 	}
+	// Windows reports only 0666 (writable) or 0444 (read-only).
+	wantMode := int64(0o600)
+	if runtime.GOOS == "windows" {
+		wantMode = 0o666
+	}
 	got, err := zst.Decompress(raw)
 	h := sha256.Sum256([]byte("tool output body"))
-	if err != nil || !bytes.Equal(got, []byte("tool output body")) || shaDB != hex.EncodeToString(h[:]) || mode != 0o600 || mtime != mt.UnixNano() {
+	if err != nil || !bytes.Equal(got, []byte("tool output body")) || shaDB != hex.EncodeToString(h[:]) || mode != wantMode || mtime != mt.UnixNano() {
 		t.Fatalf("round trip: %q %s %o %d %v", got, shaDB, mode, mtime, err)
 	}
 	if n := count(t, st, `SELECT count(*) FROM asset_fts`); n != 6 {
@@ -365,6 +371,9 @@ func TestBackfillExtrasOnce(t *testing.T) {
 }
 
 func TestAssetFailurePersistedWithBackoffAndBinaryMarker(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod 0 does not make a file unreadable on Windows")
+	}
 	st, root := setup(t)
 	bad := filepath.Join(root, "proj", sid, "tool-results", "locked.txt")
 	writeMode(t, bad, "secret", 0o600, time.Now())

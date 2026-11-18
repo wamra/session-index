@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -18,12 +19,32 @@ import (
 	"github.com/wamra/session-index/internal/store"
 )
 
+// setHome points the home directory at dir: os.UserHomeDir reads HOME on Unix
+// and USERPROFILE on Windows.
+func setHome(t *testing.T, dir string) {
+	t.Helper()
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
+}
+
+// portableMode maps a Unix permission to what the OS reports back: Windows
+// only has 0666 (writable) and 0444 (read-only).
+func portableMode(m os.FileMode) os.FileMode {
+	if runtime.GOOS != "windows" {
+		return m
+	}
+	if m&0o200 != 0 {
+		return 0o666
+	}
+	return 0o444
+}
+
 const tsid = "22222222-2222-2222-2222-222222222222"
 
 func seedRoot(t *testing.T) (root, db string) {
 	t.Helper()
 	root = t.TempDir()
-	t.Setenv("HOME", t.TempDir()) // never discover the real profiles tree
+	setHome(t, t.TempDir()) // never discover the real profiles tree
 	db = filepath.Join(t.TempDir(), "sub", "archive.sqlite")
 	t.Setenv("SESSION_INDEX_DB", db)
 	t.Setenv("SESSION_INDEX_ROOT", root)
@@ -156,6 +177,9 @@ func TestCLIHookEmbedSpawnsViaInjectedSpawner(t *testing.T) {
 
 // The real spawnEmbed runs `<self> embed` detached with output in embed.log.
 func TestSpawnEmbedRunsSelfEmbed(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake self is a #!/bin/sh script; Windows cannot exec it")
+	}
 	_, db := seedRoot(t)
 	st, err := openStore()
 	if err != nil {
@@ -259,7 +283,7 @@ func TestCLIHookModePanicExitsZero(t *testing.T) {
 
 func TestCLIInstallHooksLaunchdOptIn(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	settings := filepath.Join(home, ".claude", "settings.json")
 	os.MkdirAll(filepath.Dir(settings), 0o755)
 	os.WriteFile(settings, []byte("{}\n"), 0o644)
@@ -283,7 +307,7 @@ func TestCLIInstallHooksLaunchdOptIn(t *testing.T) {
 func TestCLIDoctorPlistOptionalAndQuickCheck(t *testing.T) {
 	seedRoot(t)
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	settings := filepath.Join(home, ".claude", "settings.json")
 	os.MkdirAll(filepath.Dir(settings), 0o755)
 	os.WriteFile(settings, []byte("{}\n"), 0o644)

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -372,6 +373,9 @@ func TestChunkTexts(t *testing.T) {
 }
 
 func TestSweepBackoffAndSummary(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("chmod 0 does not make a file unreadable on Windows")
+	}
 	st, root := setup(t)
 	good := mainPath(root)
 	write(t, good, userLine(1, longText), false)

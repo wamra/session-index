@@ -135,7 +135,7 @@ func TestCLISummarizeFilesShowSearchDoctor(t *testing.T) {
 		t.Fatal(err)
 	}
 	fi, err := os.Stat(filepath.Join(to, "proj", tsid+".jsonl"))
-	if err != nil || fi.Mode().Perm() != 0o644 {
+	if err != nil || fi.Mode().Perm() != portableMode(0o644) {
 		t.Fatalf("mode %v %v", fi, err)
 	}
 	_ = root
@@ -181,7 +181,7 @@ func TestCLIHookArchivesSessionSubtreeAndMemory(t *testing.T) {
 	}
 	var m int
 	st.DB().QueryRow(`SELECT mode FROM files WHERE path=?`, p).Scan(&m)
-	if m != 0o644 {
+	if m != int(portableMode(0o644)) {
 		t.Fatalf("files.mode %o", m)
 	}
 	var ptr int

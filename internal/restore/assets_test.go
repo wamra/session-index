@@ -4,11 +4,24 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
 	"github.com/wamra/session-index/internal/ingest"
 )
+
+// portableMode maps a Unix permission to what the OS reports back: Windows
+// only has 0666 (writable) and 0444 (read-only).
+func portableMode(m os.FileMode) os.FileMode {
+	if runtime.GOOS != "windows" {
+		return m
+	}
+	if m&0o200 != 0 {
+		return 0o666
+	}
+	return 0o444
+}
 
 func TestRestoreWritesAssetsWithModeAndMtime(t *testing.T) {
 	st := openStore(t)
@@ -44,8 +57,8 @@ func TestRestoreWritesAssetsWithModeAndMtime(t *testing.T) {
 		mode     os.FileMode
 		mt       time.Time
 	}{
-		{main, "proj/" + sid + ".jsonl", 0o600, mt},
-		{tr, "proj/" + sid + "/tool-results/out.txt", 0o640, mt.Add(time.Hour)},
+		{main, "proj/" + sid + ".jsonl", portableMode(0o600), mt},
+		{tr, "proj/" + sid + "/tool-results/out.txt", portableMode(0o640), mt.Add(time.Hour)},
 	} {
 		got := filepath.Join(to, c.rel)
 		fi, err := os.Stat(got)

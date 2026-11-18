@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -22,7 +23,7 @@ func fakeProfiles(t *testing.T) string {
 	t.Helper()
 	profiles := t.TempDir()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	t.Setenv("SESSION_INDEX_OLLAMA", "http://127.0.0.1:1")
 	t.Setenv("SESSION_INDEX_PEERS", "")
 	for i, n := range []string{"desktop", "laptop", "default"} {
@@ -34,6 +35,9 @@ func fakeProfiles(t *testing.T) string {
 		os.WriteFile(p, []byte(l1+"\n"+l2+"\n"), 0o644)
 	}
 	if err := os.Symlink(filepath.Join(profiles, "desktop"), filepath.Join(home, ".claude")); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skipf("symlink needs privilege on Windows: %v", err)
+		}
 		t.Fatal(err)
 	}
 	t.Setenv("SESSION_INDEX_DB", filepath.Join(home, ".claude", "cache", "session-archive", "archive.sqlite"))
@@ -330,7 +334,7 @@ func TestCLIVacuumShrinksArchive(t *testing.T) {
 	defer srv.Close()
 	t.Setenv("SESSION_INDEX_OLLAMA", srv.URL)
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	os.MkdirAll(filepath.Join(home, ".claude"), 0o755)
 	os.WriteFile(filepath.Join(home, ".claude", "settings.json"), []byte("{}\n"), 0o644)
 	if c, o, e := runCLI(t, "install-hooks", "--settings", filepath.Join(home, ".claude", "settings.json")); c != 0 {

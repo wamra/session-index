@@ -20,7 +20,7 @@ func write(t *testing.T, body string) string {
 }
 
 func TestPath(t *testing.T) {
-	if got := Path("/h", env(nil)); got != "/h/.config/session-index/config.json" {
+	if got := Path("/h", env(nil)); got != filepath.FromSlash("/h/.config/session-index/config.json") {
 		t.Fatal(got)
 	}
 	if got := Path("/h", env(map[string]string{"SESSION_INDEX_CONFIG": "/x/c.json"})); got != "/x/c.json" {
