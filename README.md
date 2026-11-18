@@ -60,10 +60,10 @@ Inside Claude Code, the `session-search` skill and the `session-index-search` to
 
 ## Status
 
-Version 0.1.0. Only macOS has been run and tested.
+Version 0.1.0. Only macOS is in daily use.
 
-- Linux builds and uses the same Unix code paths, but no test has run there.
-- Windows builds (amd64, arm64) and passes `go vet`, but nothing has run there, including `install.ps1`.
+- Linux: the test suite passes in CI; not used beyond that.
+- Windows: the test suite passes in CI; not used beyond that, and `install.ps1` has not been run.
 - The plugin install commands and `.goreleaser.yaml` have not been tested.
 
 ## Documentation
