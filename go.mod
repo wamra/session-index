@@ -13,6 +13,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.63.13
 	github.com/aws/smithy-go v1.28.9
 	github.com/klauspost/compress v1.19.2
+	golang.org/x/crypto v0.31.0
+	golang.org/x/term v0.32.0
 )
 
 require (
@@ -28,6 +30,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sso v1.39.5 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.44.5 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.52.0 // indirect
+	lukechampine.com/adiantum v1.1.1 // indirect
 )
 
 require (

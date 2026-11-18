@@ -101,6 +101,7 @@ func dsn(path string, q url.Values) string {
 }
 
 // Open opens (creating if needed) the archive at path and applies the schema.
+// An encrypted archive is recognized and opened with its key (encryption.go).
 // Rows that predate the profile columns are left with a NULL profile; use
 // OpenProfile to backfill them.
 func Open(path string) (*Store, error) { return OpenProfile(path, "") }
@@ -113,18 +114,34 @@ func OpenProfile(path, profile string) (*Store, error) {
 
 // OpenWith is OpenProfile with embedder settings (see Opts).
 func OpenWith(path string, o Opts) (*Store, error) {
+	if err := checkMarker(path); err != nil {
+		return nil, err
+	}
+	key, err := keyFor(path)
+	if err != nil {
+		return nil, err
+	}
 	setupCompilationCache(path)
 	q := url.Values{}
 	q.Add("_pragma", "busy_timeout(30000)")
 	q.Add("_pragma", "journal_mode("+JournalMode+")")
 	q.Add("_pragma", "synchronous(FULL)")
+	if key != "" {
+		withKey(q, key)
+	}
 	db, err := sql.Open("sqlite3", dsn(path, q))
 	if err != nil {
-		return nil, err
+		return nil, redact(err, key)
+	}
+	if key != "" {
+		if err := probe(db, path, key); err != nil {
+			db.Close()
+			return nil, err
+		}
 	}
 	if err := MigrateWith(db, o); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("migrate: %w", err)
+		return nil, fmt.Errorf("migrate: %w", redact(err, key))
 	}
 	return &Store{db: db, path: path}, nil
 }
@@ -135,18 +152,27 @@ func OpenReadOnly(path string) (*Store, error) {
 	if _, err := os.Stat(path); err != nil {
 		return nil, err
 	}
+	if err := checkMarker(path); err != nil {
+		return nil, err
+	}
+	key, err := keyFor(path)
+	if err != nil {
+		return nil, err
+	}
 	setupCompilationCache("")
 	q := url.Values{}
 	q.Set("mode", "ro")
 	q.Add("_pragma", "busy_timeout(5000)")
 	q.Add("_pragma", "query_only(1)")
+	if key != "" {
+		withKey(q, key)
+	}
 	db, err := sql.Open("sqlite3", dsn(path, q))
 	if err != nil {
-		return nil, err
+		return nil, redact(err, key)
 	}
 	// Force a real open and schema read so a broken file fails here.
-	var n int
-	if err := db.QueryRow(`SELECT count(*) FROM sqlite_master`).Scan(&n); err != nil {
+	if err := probe(db, path, key); err != nil {
 		db.Close()
 		return nil, err
 	}

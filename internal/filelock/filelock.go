@@ -31,3 +31,6 @@ func (l *Lock) Release() {
 	unlock(l.f)
 	l.f.Close()
 }
+
+// File returns the locked file, for a holder that keeps state in it.
+func (l *Lock) File() *os.File { return l.f }
