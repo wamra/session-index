@@ -3,6 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 const SEARCH = 'mcp__session-index-search__search'
 const SHOW = 'mcp__session-index-search__show'
 const MAX_TEXT = 12000
+const DEFAULT_BIN = 'session-index'
 
 type Hit = {
   session_id: string
@@ -65,9 +66,12 @@ function formatHits(stdout: string): string {
   return `${route}${lines.join('\n')}\n\nRead one with the show tool (session_id prefix is enough; for a plan pass the whole plans:... id). Restore transcripts only with 'session-index restore SESSION_ID --to DIR', never --in-place without asking.`
 }
 
+// Without a "binary" option the plugin runs its bundled launcher (bin/ next to plugin.json) and
+// falls back to session-index on PATH when the launcher is absent (sh exits 127).
 async function run($: EngineInterface, bin: string, argv: string[]) {
   try {
-    const r = await $.process.run([bin, ...argv], { timeoutMs: 90_000 })
+    let r = await $.process.run(bin === DEFAULT_BIN ? ['sh', `${$.plugin.root}/bin/session-index`, ...argv] : [bin, ...argv], { timeoutMs: 90_000 })
+    if (bin === DEFAULT_BIN && r.exitCode === 127) r = await $.process.run([bin, ...argv], { timeoutMs: 90_000 })
     if (r.exitCode !== 0) return { ok: false as const, text: clip(`session-index exited ${r.exitCode}: ${r.stderr.trim() || r.stdout.trim()}`, MAX_TEXT) }
     return { ok: true as const, text: r.stdout }
   } catch (err) {

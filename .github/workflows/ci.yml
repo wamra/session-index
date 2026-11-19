@@ -46,3 +46,27 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
+
+  # Builds the installable plugin (launcher plus the six binaries) and force-pushes it as the
+  # orphan "plugin" branch, which the marketplace entry installs from. One commit, so history stays small.
+  plugin:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: scripts/build-plugin.sh "$RUNNER_TEMP/plugin" "${GITHUB_SHA::7}"
+      - name: Push the plugin branch
+        working-directory: ${{ runner.temp }}/plugin
+        run: |
+          git init -q -b plugin
+          git config user.name "wamra"
+          git config user.email "wamra@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Plugin build of ${GITHUB_SHA::7}"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" plugin

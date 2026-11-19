@@ -27,7 +27,9 @@ test('the search tool runs the binary with --json and formats hits', async ($, o
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
 
   const out = await $.tool.call({ tool: 'mcp__session-index-search__search', query: 'firewall', since: '7d', k: 3 })
-  expect(seen).toEqual(['session-index', 'search', 'firewall', '--json', '--since', '7d', '--k', '3'])
+  expect(seen[0]).toBe('sh')
+  expect(seen[1]).toMatch(/\/bin\/session-index$/)
+  expect(seen.slice(2)).toEqual(['search', 'firewall', '--json', '--since', '7d', '--k', '3'])
   expect(String((out as { result?: unknown }).result)).toContain('11111111-222')
 })
 
@@ -42,4 +44,21 @@ test('an empty query is refused and a failing binary is an error result', async 
   expect((empty as { deny?: string }).deny).toBeDefined()
   const bad = await $.tool.call({ tool: 'mcp__session-index-search__search', query: 'x' })
   expect(JSON.stringify(bad)).toContain('boom')
+})
+
+test('without the bundled launcher (sh exits 127) it falls back to session-index on PATH', async ($, on) => {
+  const calls: (readonly string[])[] = []
+  on('process.run', (_, e) => {
+    calls.push(e.argv)
+    const exitCode = e.argv[0] === 'sh' ? 127 : 0
+    return { value: { exitCode, stdout: exitCode === 0 ? HITS : '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  on('tool.register', () => ({ value: {} }))
+  on('command.register', () => ({ value: { command: 'sessions' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  const out = await $.tool.call({ tool: 'mcp__session-index-search__search', query: 'firewall' })
+  expect(calls.map((c) => c[0])).toEqual(['sh', 'session-index'])
+  expect(String((out as { result?: unknown }).result)).toContain('11111111-222')
 })
