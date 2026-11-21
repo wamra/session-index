@@ -28,8 +28,8 @@ test('the search tool runs the binary with --json and formats hits', async ($, o
 
   const out = await $.tool.call({ tool: 'mcp__session-index-search__search', query: 'firewall', since: '7d', k: 3 })
   expect(seen[0]).toBe('sh')
-  expect(seen[1]).toMatch(/\/bin\/session-index$/)
-  expect(seen.slice(2)).toEqual(['search', 'firewall', '--json', '--since', '7d', '--k', '3'])
+  expect(seen[3]).toMatch(/\/bin\/session-index$/)
+  expect(seen.slice(4)).toEqual(['search', 'firewall', '--json', '--since', '7d', '--k', '3'])
   expect(String((out as { result?: unknown }).result)).toContain('11111111-222')
 })
 
@@ -60,5 +60,22 @@ test('without the bundled launcher (sh exits 127) it falls back to session-index
 
   const out = await $.tool.call({ tool: 'mcp__session-index-search__search', query: 'firewall' })
   expect(calls.map((c) => c[0])).toEqual(['sh', 'session-index'])
+  expect(String((out as { result?: unknown }).result)).toContain('11111111-222')
+})
+
+test('when the launcher cannot even start (no sh) it still falls back to session-index on PATH', async ($, on) => {
+  const calls: string[] = []
+  on('process.run', (_, e) => {
+    calls.push(e.argv[0])
+    if (e.argv[0] === 'sh') throw new Error('spawn sh ENOENT')
+    return { value: { exitCode: 0, stdout: HITS, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  on('tool.register', () => ({ value: {} }))
+  on('command.register', () => ({ value: { command: 'sessions' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  const out = await $.tool.call({ tool: 'mcp__session-index-search__search', query: 'firewall' })
+  expect(calls).toEqual(['sh', 'session-index'])
   expect(String((out as { result?: unknown }).result)).toContain('11111111-222')
 })

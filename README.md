@@ -37,7 +37,7 @@ session-index backfill --embed  # index your existing sessions
 
 Use the plugin hooks or `install-hooks`, not both, or each transcript is ingested twice.
 
-The `plugin` branch (built by CI from `main`) carries the six binaries, so installing the plugin from that branch needs no separate binary: `scripts/build-plugin.sh OUT` builds the same tree locally.
+The `plugin` branch carries one plugin (archive hooks, the `session-search` skill, the search and show tools and `/sessions`) with the six binaries, so installing it needs no separate binary. CI publishes it when you push a version tag (`git tag v0.1.1 && git push --tags`) or run the `ci` workflow by hand. `scripts/build-plugin.sh OUT` builds the same tree locally and `scripts/check-plugin.sh OUT` runs the checks CI runs before publishing.
 
 ## Use
 

@@ -4,6 +4,8 @@ const SEARCH = 'mcp__session-index-search__search'
 const SHOW = 'mcp__session-index-search__show'
 const MAX_TEXT = 12000
 const DEFAULT_BIN = 'session-index'
+// A missing script makes bash exit 127 but dash exit 2, so the existence test is explicit.
+const LAUNCH = 'if [ -f "$0" ]; then exec sh "$0" "$@"; fi; exit 127'
 
 type Hit = {
   session_id: string
@@ -66,12 +68,19 @@ function formatHits(stdout: string): string {
   return `${route}${lines.join('\n')}\n\nRead one with the show tool (session_id prefix is enough; for a plan pass the whole plans:... id). Restore transcripts only with 'session-index restore SESSION_ID --to DIR', never --in-place without asking.`
 }
 
-// Without a "binary" option the plugin runs its bundled launcher (bin/ next to plugin.json) and
-// falls back to session-index on PATH when the launcher is absent (sh exits 127).
+// Without a "binary" option the plugin runs its bundled launcher (bin/ next to plugin.json). The
+// launcher already falls back to session-index on PATH and exits 127 when nothing can run; this
+// also falls back when the launcher cannot start at all (for example there is no sh).
 async function run($: EngineInterface, bin: string, argv: string[]) {
+  const opts = { timeoutMs: 90_000 }
   try {
-    let r = await $.process.run(bin === DEFAULT_BIN ? ['sh', `${$.plugin.root}/bin/session-index`, ...argv] : [bin, ...argv], { timeoutMs: 90_000 })
-    if (bin === DEFAULT_BIN && r.exitCode === 127) r = await $.process.run([bin, ...argv], { timeoutMs: 90_000 })
+    let r
+    if (bin === DEFAULT_BIN) {
+      r = await $.process.run(['sh', '-c', LAUNCH, `${$.plugin.root}/bin/session-index`, ...argv], opts).catch(() => undefined)
+      if (!r || r.exitCode === 127) r = await $.process.run([bin, ...argv], opts)
+    } else {
+      r = await $.process.run([bin, ...argv], opts)
+    }
     if (r.exitCode !== 0) return { ok: false as const, text: clip(`session-index exited ${r.exitCode}: ${r.stderr.trim() || r.stdout.trim()}`, MAX_TEXT) }
     return { ok: true as const, text: r.stdout }
   } catch (err) {

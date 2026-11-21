@@ -3,6 +3,7 @@ name: ci
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -47,10 +48,12 @@ jobs:
           retention-days: 7
           compression-level: 0
 
-  # Builds the installable plugin (launcher plus the six binaries) and force-pushes it as the
-  # orphan "plugin" branch, which the marketplace entry installs from. One commit, so history stays small.
+  # Publishes the installable plugin (launcher plus the six binaries) as the orphan "plugin" branch,
+  # which the marketplace installs from. Runs for a version tag (git tag v0.1.1 && git push --tags)
+  # or by hand, not for every push: with no pinned version, every new plugin commit is an update
+  # that every machine downloads (about 90 MB), so docs-only pushes must not publish.
   plugin:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     needs: test
     runs-on: ubuntu-latest
     permissions:
@@ -60,13 +63,22 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - run: scripts/build-plugin.sh "$RUNNER_TEMP/plugin" "${GITHUB_SHA::7}"
-      - name: Push the plugin branch
+      - name: Build and check the plugin tree
+        run: |
+          v="${GITHUB_SHA::7}"; [ "$GITHUB_REF_TYPE" = tag ] && v="$GITHUB_REF_NAME"
+          scripts/build-plugin.sh "$RUNNER_TEMP/plugin" "$v"
+          scripts/check-plugin.sh "$RUNNER_TEMP/plugin" "$v"
+      - name: Push the plugin branch when it changed
         working-directory: ${{ runner.temp }}/plugin
         run: |
+          remote="https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
           git init -q -b plugin
           git config user.name "wamra"
           git config user.email "wamra@users.noreply.github.com"
           git add -A
-          git commit -q -m "Plugin build of ${GITHUB_SHA::7}"
-          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" plugin
+          new=$(git write-tree)
+          if git fetch -q --depth 1 "$remote" plugin && [ "$(git rev-parse FETCH_HEAD^{tree})" = "$new" ]; then
+            echo "plugin branch already has this tree"; exit 0
+          fi
+          git commit -q -m "Plugin build of ${GITHUB_REF_NAME} (${GITHUB_SHA::7})"
+          git push -f "$remote" plugin
