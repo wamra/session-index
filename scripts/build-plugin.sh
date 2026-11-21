@@ -14,6 +14,9 @@ for t in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 windows
 done
 cp "$ROOT/scripts/plugin-launcher.sh" "$OUT/bin/session-index"
 cp "$MOD/hooks/register.ts" "$OUT/hooks/"
+# The engine names a mod's tools mcp__<plugin>__<name> and the mod ships inside the "session-index"
+# plugin, so the tool.call matchers (and the option name in the error text) follow that name.
+perl -pi -e 's/mcp__session-index-search__/mcp__session-index__/g; s/session-index-search "binary"/session-index "binary"/g' "$OUT/hooks/register.ts"
 cp "$ROOT/skills/session-search/SKILL.md" "$OUT/skills/session-search/"
 cp "$ROOT/LICENSE" "$ROOT/README.md" "$OUT/"
 # plugin.json: the archive plugin plus the mod's "binary" option, with no pinned version (the
