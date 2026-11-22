@@ -39,4 +39,4 @@ require (
 	golang.org/x/sys v0.33.0
 )
 
-replace github.com/ncruces/go-sqlite3 => github.com/wamra/go-sqlite3 v0.21.4-0.20261122001307-9b5d0dff11f5
+replace github.com/ncruces/go-sqlite3 => github.com/wamra/go-sqlite3 v0.21.4-0.20261122010613-18695619c5b1

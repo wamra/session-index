@@ -78,9 +78,9 @@ type Store struct {
 // JournalMode is the journal mode every writable connection asks for: WAL on
 // every platform.
 //
-// Windows used a rollback journal while the pinned SQLite driver had two
-// defects in its WAL-index mapping (docs/REFERENCE.md, Design note). go.mod
-// now replaces the driver with a fork of the same version that fixes both.
+// Windows used a rollback journal while the pinned SQLite driver had three
+// WAL defects there (docs/REFERENCE.md, Design note). go.mod
+// now replaces the driver with a fork of the same version that fixes them.
 var JournalMode = journalMode(runtime.GOOS)
 
 func journalMode(goos string) string {
