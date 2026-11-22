@@ -75,21 +75,15 @@ type Store struct {
 	path string
 }
 
-// JournalMode is the journal mode every writable connection asks for: WAL,
-// except on Windows, where it is a rollback journal (DELETE).
+// JournalMode is the journal mode every writable connection asks for: WAL on
+// every platform.
 //
-// The pinned SQLite driver (docs/REFERENCE.md, Design note) maps the WAL index
-// at an offset that is not a multiple of the Windows allocation granularity,
-// so a transaction that grows the WAL past its first index region (about
-// 4,000 pages) fails with "disk I/O error" (ncruces/go-sqlite3 issue 330,
-// fixed upstream in v0.30.1, which the sqlite-vec binding does not link
-// against). A rollback journal uses no shared memory.
+// Windows used a rollback journal while the pinned SQLite driver had two
+// defects in its WAL-index mapping (docs/REFERENCE.md, Design note). go.mod
+// now replaces the driver with a fork of the same version that fixes both.
 var JournalMode = journalMode(runtime.GOOS)
 
 func journalMode(goos string) string {
-	if goos == "windows" {
-		return "DELETE"
-	}
 	return "WAL"
 }
 

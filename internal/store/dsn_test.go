@@ -55,7 +55,7 @@ func TestOpenPathWithURICharacters(t *testing.T) {
 }
 
 func TestJournalModeByOS(t *testing.T) {
-	for goos, want := range map[string]string{"darwin": "WAL", "linux": "WAL", "windows": "DELETE"} {
+	for goos, want := range map[string]string{"darwin": "WAL", "linux": "WAL", "windows": "WAL"} {
 		if got := journalMode(goos); got != want {
 			t.Errorf("journalMode(%q) = %q, want %q", goos, got, want)
 		}

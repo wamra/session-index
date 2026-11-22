@@ -38,3 +38,5 @@ require (
 	github.com/ncruces/julianday v1.0.0 // indirect
 	golang.org/x/sys v0.33.0
 )
+
+replace github.com/ncruces/go-sqlite3 => github.com/wamra/go-sqlite3 v0.21.4-0.20261122001307-9b5d0dff11f5

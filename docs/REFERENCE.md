@@ -14,7 +14,7 @@ session-index install-hooks     # writes only ~/.claude/settings.json
 
 ## Platforms
 
-Only macOS is in daily use. On Linux and Windows the test suite passes in CI (GitHub-hosted amd64 runners), but neither has been used with a real Claude Code profile, and `install.ps1` has not been run. On Windows, file locking uses LockFileEx, detached embedding uses DETACHED_PROCESS, restore uses hard links, and the archive uses a rollback journal instead of a WAL (see the design note), so a search waits while a writer commits, and writes are slower. The cloud-sync warning recognises only the macOS CloudStorage path.
+Only macOS is in daily use. On Linux and Windows the test suite passes in CI (GitHub-hosted amd64 runners), but neither has been used with a real Claude Code profile, and `install.ps1` has not been run. On Windows, file locking uses LockFileEx, detached embedding uses DETACHED_PROCESS, and restore uses hard links. The archive uses a WAL there as elsewhere, through a patched driver (see the design note). The cloud-sync warning recognises only the macOS CloudStorage path.
 
 ## Catch-up
 
@@ -197,7 +197,7 @@ Chosen: `github.com/ncruces/go-sqlite3` v0.21.3 (pure Go, WASM SQLite, no cgo) w
 - Benchmark: 15,273 x 768 float32 vectors in `chunk_vec`, 100 KNN k=50 queries: p50 = 22.1 ms, p95 = 23.6 ms (threshold 40 ms).
 - `mattn/go-sqlite3` + cgo bindings was not run: ncruces p50 is below the 40 ms switch threshold, so no fallback comparison number exists.
 - Version pin: the binding's embedded wasm only links against ncruces v0.19.0 to v0.21.3 and v0.23.3 (tested: v0.16.3 and v0.18.0 fail on `go_busy_timeout` signature, v0.22.0 on atomics, v0.25.2 on `go_final`; ncruces v0.37.0 no longer has `sqlite3.Binary`, so the binding does not compile). v0.21.3 is the newest tag in the contiguous passing range.
-- Windows: this driver version maps the WAL index at an offset Windows rejects once a WAL grows past about 4,000 pages ("disk I/O error"; ncruces/go-sqlite3 issue 330, fixed in v0.30.1, which the binding does not link against). `internal/store` therefore opens the archive with `journal_mode=DELETE` on Windows and WAL elsewhere.
+- Windows: v0.21.3 has two defects in its WAL-index mapping. It maps a region at an offset Windows rejects once a WAL grows past about 4,000 pages ("disk I/O error"; ncruces/go-sqlite3 issue 330, fixed upstream in v0.30.1, which the binding does not link against), and it fills every missing region slot with a view of the requested region, so a second connection can read a wrong index ("database disk image is malformed"). `go.mod` replaces the driver with `github.com/wamra/go-sqlite3`, branch `wamra/v0.21.3-windows-wal`: v0.21.3 plus both fixes and a test that fails without them on Windows. The archive is opened with `journal_mode=WAL` on every platform.
 - The binding's wasm uses atomics, so `internal/store` sets `sqlite3.RuntimeConfig` with `experimental.CoreFeaturesThreads`.
 
 ## Development

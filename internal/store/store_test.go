@@ -157,7 +157,7 @@ func TestCheckpointLeavesEmptyWAL(t *testing.T) {
 		t.Fatal(err)
 	}
 	if JournalMode != "WAL" {
-		// Rollback journal: there is no -wal, and Checkpoint must still succeed.
+		// No WAL (not the case on any platform today): Checkpoint must still succeed.
 		if err := s.Checkpoint(); err != nil {
 			t.Fatal(err)
 		}
