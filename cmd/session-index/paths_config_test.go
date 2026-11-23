@@ -6,6 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/wamra/session-index/internal/ingest"
+	"github.com/wamra/session-index/internal/search"
 )
 
 func writeConfig(t *testing.T, body string) {
@@ -92,4 +96,20 @@ func jsonString(s string) string {
 	}
 	b.WriteByte('"')
 	return b.String()
+}
+
+func TestSearchAndIngestKnobsComeFromTheFile(t *testing.T) {
+	setHome(t, t.TempDir())
+	t.Cleanup(func() {
+		search.SetTuning(10, 60, 3*time.Second, 24)
+		ingest.SetBackoff(30 * time.Second)
+	})
+	writeConfig(t, `{"search":{"default_k":3,"rrf_k":30,"embed_timeout_ms":500,"max_terms":8},"ingest":{"backoff_seconds":5}}`)
+	if _, err := loadConfig(); err != nil {
+		t.Fatal(err)
+	}
+	k, rrf, wait, terms := search.Tuning()
+	if k != 3 || rrf != 30 || wait != 500*time.Millisecond || terms != 8 || ingest.Backoff() != 5*time.Second {
+		t.Fatalf("%d %d %v %d %v", k, rrf, wait, terms, ingest.Backoff())
+	}
 }
