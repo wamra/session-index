@@ -169,15 +169,24 @@ func (*timeoutError) Is(t error) bool {
 
 // Embedding model families on Bedrock.
 const (
-	familyTitan  = "titan"
-	familyCohere = "cohere"
+	familyTitan    = "titan"     // amazon.titan-embed-text-v2:0
+	familyTitanV1  = "titan-v1"  // amazon.titan-embed-text-v1
+	familyCohere   = "cohere"    // cohere.embed-english-v3, cohere.embed-multilingual-v3
+	familyCohereV4 = "cohere-v4" // cohere.embed-v4:0 and its us., eu. and global. inference profiles
 )
+
+// bedrockEmbedModels is the list shown when embed.model has no request schema here.
+const bedrockEmbedModels = "amazon.titan-embed-text-v2:0, amazon.titan-embed-text-v1, cohere.embed-english-v3, cohere.embed-multilingual-v3 and cohere.embed-v4:0 (also as us., eu. or global. inference profile)"
 
 func bedrockEmbedFamily(model string) string {
 	m := strings.ToLower(model)
 	switch {
 	case strings.Contains(m, "titan-embed-text-v2"):
 		return familyTitan
+	case strings.Contains(m, "titan-embed-text-v1"):
+		return familyTitanV1
+	case strings.Contains(m, "cohere.embed-v4"):
+		return familyCohereV4
 	case strings.Contains(m, "cohere.embed-"):
 		return familyCohere
 	}
@@ -187,8 +196,8 @@ func bedrockEmbedFamily(model string) string {
 // cohereBatch is Cohere's maximum number of texts per request.
 const cohereBatch = 96
 
-// BedrockEmbedder embeds with Titan Text Embeddings V2 or Cohere Embed v3 via
-// InvokeModel. For Cohere, the "prefixes" are input_type values.
+// BedrockEmbedder embeds with Titan Text Embeddings V1 or V2, or Cohere Embed v3
+// or v4, via InvokeModel. For Cohere, the "prefixes" are input_type values.
 type BedrockEmbedder struct {
 	Model                  string
 	family                 string
@@ -235,13 +244,18 @@ func (e *BedrockEmbedder) invoke(ctx context.Context, body map[string]any) ([]by
 
 // Embed embeds texts (each capped to 2000 runes). Titan takes one text per
 // request; Cohere takes up to 96, with input_type search_query when prefix is
-// the query type (else search_document) and truncate END.
+// the query type (else search_document). Cohere v3 sends truncate END; v4 asks
+// for float vectors of embed.dims and sends no truncate (the texts are far below its limit).
 func (e *BedrockEmbedder) Embed(ctx context.Context, texts []string, prefix string) ([][]float32, error) {
 	var vecs [][]float32
 	switch e.family {
-	case familyTitan:
+	case familyTitan, familyTitanV1:
 		for _, t := range capAll(texts, prefix) {
-			raw, err := e.invoke(ctx, map[string]any{"inputText": t, "dimensions": e.Dims(), "normalize": true})
+			body := map[string]any{"inputText": t}
+			if e.family == familyTitan {
+				body["dimensions"], body["normalize"] = e.Dims(), true
+			}
+			raw, err := e.invoke(ctx, body)
 			if err != nil {
 				return nil, err
 			}
@@ -253,7 +267,7 @@ func (e *BedrockEmbedder) Embed(ctx context.Context, texts []string, prefix stri
 			}
 			vecs = append(vecs, out.Embedding)
 		}
-	case familyCohere:
+	case familyCohere, familyCohereV4:
 		inputType := CohereDocType
 		if prefix == CohereQueryType {
 			inputType = CohereQueryType
@@ -261,7 +275,13 @@ func (e *BedrockEmbedder) Embed(ctx context.Context, texts []string, prefix stri
 		in := capAll(texts, "")
 		for i := 0; i < len(in); i += cohereBatch {
 			chunk := in[i:min(i+cohereBatch, len(in))]
-			raw, err := e.invoke(ctx, map[string]any{"texts": chunk, "input_type": inputType, "truncate": "END"})
+			body := map[string]any{"texts": chunk, "input_type": inputType}
+			if e.family == familyCohereV4 {
+				body["embedding_types"], body["output_dimension"] = []string{"float"}, e.Dims()
+			} else {
+				body["truncate"] = "END"
+			}
+			raw, err := e.invoke(ctx, body)
 			if err != nil {
 				return nil, err
 			}
@@ -316,8 +336,8 @@ func (e *BedrockEmbedder) Health(ctx context.Context) error {
 	return err
 }
 
-// BedrockSummarizer summarizes through the Converse API with any
-// anthropic.claude-* (or us.anthropic.claude-*) model id.
+// BedrockSummarizer summarizes through the Converse API with any model id (or
+// inference profile id or ARN) that Converse accepts; the id is passed through unchanged.
 type BedrockSummarizer struct {
 	Model       string
 	Temperature float64

@@ -49,6 +49,9 @@ func KnownEmbedModel(model string) (ModelDefaults, bool) {
 	case strings.HasPrefix(m, "amazon.titan-embed-text-v2"):
 		// 1024 is Titan's default size; embed.dims may pick 256 or 512.
 		return ModelDefaults{"", "", 1024}, true
+	case strings.Contains(m, "cohere.embed-v4"):
+		// AWS default output_dimension; embed.dims may pick 256, 512 or 1024.
+		return ModelDefaults{CohereDocType, CohereQueryType, 1536}, true
 	case strings.HasPrefix(m, "cohere.embed-"):
 		// The "prefixes" are Cohere input_type values, not text.
 		return ModelDefaults{CohereDocType, CohereQueryType, 1024}, true

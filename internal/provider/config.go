@@ -205,12 +205,17 @@ func (c EmbedConfig) Validate() error {
 			if c.Dims != 256 && c.Dims != 512 && c.Dims != 1024 {
 				return fmt.Errorf("embed.dims %d: Titan Text Embeddings V2 supports 256, 512 or 1024", c.Dims)
 			}
+		case familyTitanV1: // no dimensions parameter: the size is learned from the first answer
 		case familyCohere:
 			if c.Dims != 1024 {
 				return fmt.Errorf("embed.dims %d: %s returns 1024-dimensional vectors", c.Dims, c.Model)
 			}
+		case familyCohereV4:
+			if c.Dims != 256 && c.Dims != 512 && c.Dims != 1024 && c.Dims != 1536 {
+				return fmt.Errorf("embed.dims %d: Cohere Embed v4 supports 256, 512, 1024 or 1536", c.Dims)
+			}
 		default:
-			return fmt.Errorf("embed.model %q: bedrock embeddings support amazon.titan-embed-text-v2:0, cohere.embed-english-v3 and cohere.embed-multilingual-v3", c.Model)
+			return fmt.Errorf("embed.model %q: no Bedrock request format for it here; supported: %s", c.Model, bedrockEmbedModels)
 		}
 	}
 	return nil

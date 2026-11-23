@@ -310,7 +310,7 @@ func TestBedrockEmbedConfigValidation(t *testing.T) {
 		{EmbedConfig{Provider: Bedrock, Model: "amazon.titan-embed-text-v2:0", Dims: 300}, false},
 		{EmbedConfig{Provider: Bedrock, Model: "cohere.embed-english-v3"}, true},
 		{EmbedConfig{Provider: Bedrock, Model: "cohere.embed-multilingual-v3", Dims: 512}, false},
-		{EmbedConfig{Provider: Bedrock, Model: "amazon.titan-embed-text-v1"}, false},
+		{EmbedConfig{Provider: Bedrock, Model: "amazon.titan-embed-text-v1"}, true},
 		{EmbedConfig{Provider: Bedrock}, false},
 	} {
 		err := c.cfg.Resolved().Validate()
@@ -660,6 +660,80 @@ func TestDotlessHostnameIsLocal(t *testing.T) {
 	for base, want := range map[string]bool{"http://desktop:1234": true, "http://lmstudio": true, "https://api.openai.com": false} {
 		if Hosted(OpenAI, base) == want {
 			t.Errorf("Hosted(openai, %s) = %v", base, !want)
+		}
+	}
+}
+
+func TestBedrockTitanV1SendsOnlyTheText(t *testing.T) {
+	api := &fakeAPI{invoke: func(n int, in *bedrockruntime.InvokeModelInput) (*bedrockruntime.InvokeModelOutput, error) {
+		return &bedrockruntime.InvokeModelOutput{Body: []byte(`{"embedding":` + vecJSON(8) + `,"inputTextTokenCount":2}`)}, nil
+	}}
+	e := bedrockEmb(t, api, EmbedConfig{Model: "amazon.titan-embed-text-v1"})
+	vecs, err := e.Embed(context.Background(), []string{"hello"}, DocPrefixOf(e))
+	if err != nil || len(vecs) != 1 || len(vecs[0]) != 8 || e.Dims() != 8 {
+		t.Fatalf("%v %d dims %d: the size must be learned from the first answer", err, len(vecs), e.Dims())
+	}
+	var body map[string]any
+	json.Unmarshal(api.invokes[0].Body, &body)
+	if *api.invokes[0].ModelId != "amazon.titan-embed-text-v1" || body["inputText"] != "hello" || len(body) != 1 {
+		t.Fatalf("v1 takes only inputText, got %v", body)
+	}
+}
+
+func TestBedrockCohereV4RequestAndProfileIDs(t *testing.T) {
+	for _, m := range []string{"cohere.embed-v4:0", "us.cohere.embed-v4:0", "eu.cohere.embed-v4:0", "global.cohere.embed-v4:0"} {
+		if bedrockEmbedFamily(m) != familyCohereV4 {
+			t.Fatalf("%s is not recognized as Cohere Embed v4", m)
+		}
+	}
+	api := &fakeAPI{invoke: func(n int, in *bedrockruntime.InvokeModelInput) (*bedrockruntime.InvokeModelOutput, error) {
+		return &bedrockruntime.InvokeModelOutput{Body: []byte(`{"embeddings":{"float":[` + vecJSON(1536) + `]},"response_type":"embeddings_by_type"}`)}, nil
+	}}
+	e := bedrockEmb(t, api, EmbedConfig{Model: "us.cohere.embed-v4:0"})
+	if e.Dims() != 1536 {
+		t.Fatalf("v4 defaults to 1536 dims, got %d", e.Dims())
+	}
+	vecs, err := e.Embed(context.Background(), []string{"x"}, QueryPrefixOf(e))
+	if err != nil || len(vecs) != 1 || len(vecs[0]) != 1536 {
+		t.Fatalf("%v", err)
+	}
+	var body map[string]any
+	json.Unmarshal(api.invokes[0].Body, &body)
+	et, _ := body["embedding_types"].([]any)
+	if *api.invokes[0].ModelId != "us.cohere.embed-v4:0" || body["input_type"] != "search_query" || body["output_dimension"] != float64(1536) ||
+		len(et) != 1 || et[0] != "float" || len(body["texts"].([]any)) != 1 || len(body) != 4 {
+		t.Fatalf("v4 body: %v", body)
+	}
+	for dims, ok := range map[int]bool{256: true, 512: true, 1024: true, 1536: true, 768: false, 2048: false} {
+		err := (EmbedConfig{Provider: Bedrock, Model: "cohere.embed-v4:0", Dims: dims}.Resolved()).Validate()
+		if (err == nil) != ok {
+			t.Fatalf("dims %d: err %v", dims, err)
+		}
+	}
+}
+
+func TestBedrockEmbedModelsWithoutAnInvokeSchemaAreRefusedWithTheList(t *testing.T) {
+	for _, m := range []string{"amazon.nova-2-multimodal-embeddings-v1:0", "amazon.titan-embed-image-v1", "vendor.unknown-embed"} {
+		err := (EmbedConfig{Provider: Bedrock, Model: m}.Resolved()).Validate()
+		if err == nil || !strings.Contains(err.Error(), "cohere.embed-v4:0") || !strings.Contains(err.Error(), "amazon.titan-embed-text-v1") {
+			t.Fatalf("%s: %v", m, err)
+		}
+	}
+}
+
+func TestBedrockSummarizeAcceptsAnyConverseModelID(t *testing.T) {
+	api := &fakeAPI{converse: func(n int, in *bedrockruntime.ConverseInput) (*bedrockruntime.ConverseOutput, error) {
+		return &bedrockruntime.ConverseOutput{Output: &types.ConverseOutputMemberMessage{Value: types.Message{
+			Role: types.ConversationRoleAssistant, Content: []types.ContentBlock{&types.ContentBlockMemberText{Value: " ok "}}}}}, nil
+	}}
+	for _, m := range []string{"vendor.some-model-v1:0", "us.vendor.some-model-v1:0", "arn:aws:bedrock:us-east-1:123456789012:inference-profile/my-profile"} {
+		if err := (SummarizeConfig{Provider: Bedrock, Model: m}.Resolved()).Validate(); err != nil {
+			t.Fatalf("%s: %v", m, err)
+		}
+		s := bedrockSum(t, api, m)
+		out, err := s.Summarize(context.Background(), "sys", "user", 50)
+		if err != nil || out != "ok" || *api.converses[len(api.converses)-1].ModelId != m {
+			t.Fatalf("%s: %q %v", m, out, err)
 		}
 	}
 }

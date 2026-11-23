@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -246,6 +247,9 @@ func endpointOf(p, base, region, profile string) string {
 	return s
 }
 
+// ssoCachePath matches the cached SSO token file the AWS SDK names in an error.
+var ssoCachePath = regexp.MustCompile(`open \S*\.aws[/\\]sso[/\\]cache[/\\][0-9a-f]+\.json`)
+
 // authLine renders the message for a rejected credential.
 func authLine(err error, providerName, baseURL, keyEnv string) string {
 	env := keyEnv
@@ -265,7 +269,14 @@ func authLine(err error, providerName, baseURL, keyEnv string) string {
 		where += " at " + baseURL
 	}
 	if providerName == provider.Bedrock {
-		return fmt.Sprintf("authentication failed%s for %s: %v; check the AWS credentials (environment, profile, SSO)", code, where, err)
+		msg := err.Error()
+		hint := "check the AWS credentials (environment, profile, SSO)"
+		if strings.Contains(msg, "SSO") {
+			// The SDK names the token-cache file in its message; say how to sign in instead.
+			msg = ssoCachePath.ReplaceAllString(msg, "the cached SSO token")
+			hint = "sign in again with `aws sso login` (add --profile NAME if you use a profile), then retry"
+		}
+		return fmt.Sprintf("authentication failed%s for %s: %s; %s", code, where, msg, hint)
 	}
 	return fmt.Sprintf("authentication failed%s for %s; check %s (%s)", code, where, env, state)
 }

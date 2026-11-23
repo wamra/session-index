@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -111,5 +112,17 @@ func TestSearchAndIngestKnobsComeFromTheFile(t *testing.T) {
 	k, rrf, wait, terms := search.Tuning()
 	if k != 3 || rrf != 30 || wait != 500*time.Millisecond || terms != 8 || ingest.Backoff() != 5*time.Second {
 		t.Fatalf("%d %d %v %d %v", k, rrf, wait, terms, ingest.Backoff())
+	}
+}
+
+func TestBedrockSSOFailureSaysHowToSignInAndHidesTheCachePath(t *testing.T) {
+	err := errors.New("operation error Bedrock Runtime: InvokeModel, get identity: get credentials: failed to refresh cached credentials, the SSO session has expired or is invalid: failed to read cached SSO token file, open /Users/me/.aws/sso/cache/e8be5486177c5b5392bd9aa76563515b29358e6e.json: no such file or directory")
+	got := authLine(err, "bedrock", "", "")
+	if !strings.Contains(got, "aws sso login") || strings.Contains(got, "/.aws/sso/cache/") {
+		t.Fatal(got)
+	}
+	other := authLine(errors.New("AccessDeniedException"), "bedrock", "", "")
+	if strings.Contains(other, "aws sso login") {
+		t.Fatalf("the SSO hint is only for SSO failures: %s", other)
 	}
 }
