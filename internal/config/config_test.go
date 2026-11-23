@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -215,5 +216,83 @@ func TestLocalDefaultsStayUnlimitedAndInitHasExamples(t *testing.T) {
 	}
 	if strings.Contains(init, `"region"`) || strings.Contains(init, `"kinds"`) {
 		t.Fatal("unset cloud fields must not appear in the default file")
+	}
+}
+
+func TestPathsDefaultsFollowClaudeDir(t *testing.T) {
+	p := Config{}.ResolvePaths("/h", env(nil))
+	want := Paths{
+		DB:        filepath.FromSlash("/h/.claude/cache/session-archive/archive.sqlite"),
+		ClaudeDir: filepath.FromSlash("/h/.claude"),
+		Root:      filepath.FromSlash("/h/.claude/projects"),
+		KeyDir:    filepath.FromSlash("/h/.config/session-index/keys"),
+	}
+	if !reflect.DeepEqual(p, want) {
+		t.Fatalf("%+v", p)
+	}
+	c := Config{Paths: Paths{ClaudeDir: "/p/workstation"}}
+	q := c.ResolvePaths("/h", env(nil))
+	if q.DB != filepath.FromSlash("/p/workstation/cache/session-archive/archive.sqlite") || q.Root != filepath.FromSlash("/p/workstation/projects") {
+		t.Fatalf("%+v", q)
+	}
+}
+
+func TestPathsFilePrecedenceTildeAndEnv(t *testing.T) {
+	c := Config{Paths: Paths{DB: "~/db/a.sqlite", KeyDir: "~/keys", Peers: []string{"~/a.sqlite", "/b.sqlite"}}}
+	p := c.ResolvePaths("/h", env(nil))
+	if p.DB != filepath.FromSlash("/h/db/a.sqlite") || p.KeyDir != filepath.FromSlash("/h/keys") ||
+		!reflect.DeepEqual(p.Peers, []string{filepath.FromSlash("/h/a.sqlite"), "/b.sqlite"}) {
+		t.Fatalf("%+v", p)
+	}
+	e := env(map[string]string{"SESSION_INDEX_DB": "/env/a.sqlite", "SESSION_INDEX_ROOT": "/env/root",
+		"SESSION_INDEX_KEY_DIR": "/env/k", "SESSION_INDEX_PEERS": "/x" + string(os.PathListSeparator) + "/y"})
+	p = c.ResolvePaths("/h", e)
+	if p.DB != "/env/a.sqlite" || p.Root != "/env/root" || p.KeyDir != "/env/k" || !reflect.DeepEqual(p.Peers, []string{"/x", "/y"}) {
+		t.Fatalf("%+v", p)
+	}
+	// the legacy SESSION_ARCHIVE_* names still work
+	if got := c.ResolvePaths("/h", env(map[string]string{"SESSION_ARCHIVE_DB": "/old/a.sqlite"})).DB; got != "/old/a.sqlite" {
+		t.Fatal(got)
+	}
+}
+
+func TestPathsSectionRejectsUnknownKeysAndLoadsBack(t *testing.T) {
+	if _, _, err := Load(write(t, `{"paths":{"dbb":"x"}}`), env(nil)); err == nil {
+		t.Fatal("unknown key in paths must be rejected")
+	}
+	c, _, err := Load(write(t, `{"paths":{"db":"/d.sqlite","peers":["/p.sqlite"]},"search":{"rrf_k":30},"ingest":{"backoff_seconds":5}}`), env(nil))
+	if err != nil || c.Paths.DB != "/d.sqlite" || c.Search.RRFK != 30 || c.Ingest.BackoffSeconds != 5 {
+		t.Fatalf("%+v %v", c, err)
+	}
+}
+
+func TestLoadPathsIgnoresABrokenEmbedSection(t *testing.T) {
+	p := write(t, `{"paths":{"db":"/where/a.sqlite"},"embed":{"provider":"nope"},"future_key":1}`)
+	got, found, err := LoadPaths(p)
+	if err != nil || !found || got.DB != "/where/a.sqlite" {
+		t.Fatalf("%+v %v %v", got, found, err)
+	}
+	if _, _, err := Load(p, env(nil)); err == nil {
+		t.Fatal("the strict load must still reject the file")
+	}
+	if _, found, err := LoadPaths(filepath.Join(t.TempDir(), "none.json")); err != nil || found {
+		t.Fatal(found, err)
+	}
+	if _, _, err := LoadPaths(write(t, `{"paths":`)); err == nil {
+		t.Fatal("a syntax error must be an error, not silent defaults")
+	}
+}
+
+func TestTuningDefaultsAndValidation(t *testing.T) {
+	r := Config{}.Resolved()
+	if r.Search.DefaultK != 10 || r.Search.RRFK != 60 || r.Search.EmbedTimeoutMS != 3000 || r.Search.MaxTerms != 24 || r.Ingest.BackoffSeconds != 30 {
+		t.Fatalf("%+v %+v", r.Search, r.Ingest)
+	}
+	bad := Config{Search: SearchConfig{RRFK: -1}}.Resolved()
+	if err := bad.Validate(); err == nil || !strings.Contains(err.Error(), "search.rrf_k") {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(Init()), `"paths"`) || !strings.Contains(string(Effective(Config{}, "x", env(nil))), `"rrf_k": 60`) {
+		t.Fatal("config init / show must list the new sections")
 	}
 }

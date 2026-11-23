@@ -18,8 +18,35 @@ import (
 // Config is the contents of config.json.
 type Config struct {
 	Comment   string                   `json:"_comment,omitempty"`
+	Paths     Paths                    `json:"paths"`
 	Embed     provider.EmbedConfig     `json:"embed"`
 	Summarize provider.SummarizeConfig `json:"summarize"`
+	Search    SearchConfig             `json:"search"`
+	Ingest    IngestConfig             `json:"ingest"`
+}
+
+// Paths locates the archive and what it reads. An empty value means the default
+// (see ResolvePaths); a leading "~" is the home directory. The environment
+// variables SESSION_INDEX_{DB,ROOT,KEY_DIR,PEERS} override these.
+type Paths struct {
+	DB        string   `json:"db,omitempty"`         // the archive file
+	ClaudeDir string   `json:"claude_dir,omitempty"` // the Claude Code profile folder, default ~/.claude
+	Root      string   `json:"root,omitempty"`       // the transcripts folder, default <claude_dir>/projects
+	KeyDir    string   `json:"key_dir,omitempty"`    // unlocked keys on this machine
+	Peers     []string `json:"peers,omitempty"`      // peer archives to search; empty = discover next to the profile folder
+}
+
+// SearchConfig holds the search knobs that change no stored data.
+type SearchConfig struct {
+	DefaultK       int `json:"default_k,omitempty"`        // results when --k is not given
+	RRFK           int `json:"rrf_k,omitempty"`            // reciprocal-rank-fusion constant
+	EmbedTimeoutMS int `json:"embed_timeout_ms,omitempty"` // how long a query waits for its embedding before falling back to full text
+	MaxTerms       int `json:"max_terms,omitempty"`        // query terms used for full-text matching
+}
+
+// IngestConfig holds the ingest knobs that change no stored data.
+type IngestConfig struct {
+	BackoffSeconds int `json:"backoff_seconds,omitempty"` // first wait before a failed asset read is retried
 }
 
 // Path returns the config file path: $SESSION_INDEX_CONFIG, else
@@ -37,6 +64,74 @@ func Path(home string, getenv func(string) string) string {
 		}
 	}
 	return p
+}
+
+// ResolvePaths returns the effective locations: environment over file over
+// default, with "~" expanded. Defaults derive from claude_dir, so a profile
+// folder moves the archive, the transcripts and the asset folders together.
+func (c Config) ResolvePaths(home string, getenv func(string) string) Paths {
+	getenv = WithLegacy(getenv)
+	exp := func(p string) string {
+		switch {
+		case p == "~":
+			return home
+		case strings.HasPrefix(p, "~/"), strings.HasPrefix(p, `~\`):
+			return filepath.Join(home, p[2:])
+		}
+		return p
+	}
+	pick := func(env, file, def string) string {
+		if v := getenv(env); v != "" {
+			return exp(v)
+		}
+		if file != "" {
+			return exp(file)
+		}
+		return def
+	}
+	var p Paths
+	p.ClaudeDir = exp(c.Paths.ClaudeDir)
+	if p.ClaudeDir == "" {
+		p.ClaudeDir = filepath.Join(home, ".claude")
+	}
+	p.DB = pick("SESSION_INDEX_DB", c.Paths.DB, filepath.Join(p.ClaudeDir, "cache", "session-archive", "archive.sqlite"))
+	p.Root = pick("SESSION_INDEX_ROOT", c.Paths.Root, filepath.Join(p.ClaudeDir, "projects"))
+	p.KeyDir = pick("SESSION_INDEX_KEY_DIR", c.Paths.KeyDir, filepath.Join(home, ".config", "session-index", "keys"))
+	if v := getenv("SESSION_INDEX_PEERS"); v != "" {
+		for _, e := range filepath.SplitList(v) {
+			if e != "" {
+				p.Peers = append(p.Peers, e)
+			}
+		}
+	} else {
+		for _, e := range c.Paths.Peers {
+			if e != "" {
+				p.Peers = append(p.Peers, exp(e))
+			}
+		}
+	}
+	return p
+}
+
+// LoadPaths reads only the "paths" section of the file at path. It ignores
+// every other key and never validates the embed or summarize sections, so a
+// mistake there cannot send a hook to a different archive. A missing file is
+// not an error (found is false); a file that is not valid JSON is.
+func LoadPaths(path string) (p Paths, found bool, err error) {
+	b, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return Paths{}, false, nil
+	}
+	if err != nil {
+		return Paths{}, false, fmt.Errorf("config %s: %w", path, err)
+	}
+	var f struct {
+		Paths Paths `json:"paths"`
+	}
+	if err := json.Unmarshal(b, &f); err != nil {
+		return Paths{}, true, fmt.Errorf("config %s: %w", path, err)
+	}
+	return f.Paths, true, nil
 }
 
 // WithLegacy wraps getenv so a SESSION_INDEX_* lookup falls back to the
@@ -106,6 +201,16 @@ func applyEnv(c *Config, getenv func(string) string) {
 func (c Config) Resolved() Config {
 	c.Embed = c.Embed.Resolved()
 	c.Summarize = c.Summarize.Resolved()
+	def := func(v *int, d int) {
+		if *v == 0 {
+			*v = d
+		}
+	}
+	def(&c.Search.DefaultK, 10)
+	def(&c.Search.RRFK, 60)
+	def(&c.Search.EmbedTimeoutMS, 3000)
+	def(&c.Search.MaxTerms, 24)
+	def(&c.Ingest.BackoffSeconds, 30)
 	return c
 }
 
@@ -114,7 +219,19 @@ func (c Config) Validate() error {
 	if err := c.Embed.Validate(); err != nil {
 		return err
 	}
-	return c.Summarize.Validate()
+	if err := c.Summarize.Validate(); err != nil {
+		return err
+	}
+	for _, n := range []struct {
+		key string
+		v   int
+	}{{"search.default_k", c.Search.DefaultK}, {"search.rrf_k", c.Search.RRFK}, {"search.embed_timeout_ms", c.Search.EmbedTimeoutMS},
+		{"search.max_terms", c.Search.MaxTerms}, {"ingest.backoff_seconds", c.Ingest.BackoffSeconds}} {
+		if n.v < 0 {
+			return fmt.Errorf("%s must be positive, got %d", n.key, n.v)
+		}
+	}
+	return nil
 }
 
 type embedOut struct {
@@ -150,13 +267,16 @@ type summarizeOut struct {
 
 type out struct {
 	Comment   string       `json:"_comment,omitempty"`
+	Paths     Paths        `json:"paths"`
 	Embed     embedOut     `json:"embed"`
 	Summarize summarizeOut `json:"summarize"`
+	Search    SearchConfig `json:"search"`
+	Ingest    IngestConfig `json:"ingest"`
 }
 
 func (c Config) out(comment string) out {
 	e, s := c.Embed, c.Summarize
-	o := out{Comment: comment}
+	o := out{Comment: comment, Paths: c.Paths, Search: c.Search, Ingest: c.Ingest}
 	o.Embed = embedOut{e.Provider, e.BaseURL, e.Model, e.Dims, e.DocPrefix, e.QueryPrefix, e.APIKeyEnv, e.Region, e.Profile, e.MaxItemsPerDay}
 	o.Summarize = summarizeOut{s.Provider, s.BaseURL, s.Model, s.APIKeyEnv, s.MaxTokens, *s.Temperature, *s.Enabled, s.MaxItemsPerRun,
 		s.Region, s.Profile, s.MaxItemsPerDay, s.MaxInputChars, s.Kinds}
@@ -168,6 +288,9 @@ func (c Config) out(comment string) out {
 // describes where the file was looked up.
 func Effective(c Config, src string, getenv func(string) string) []byte {
 	r := c.Resolved()
+	if home, err := os.UserHomeDir(); err == nil {
+		r.Paths = r.ResolvePaths(home, getenv) // show where the tool really looks
+	}
 	state := func(name string) string {
 		switch {
 		case name == "":

@@ -89,6 +89,7 @@ func run(args []string, out, errw io.Writer) int {
 		usage(errw)
 		return 2
 	}
+	applyKeyDir()
 	return c.run(args[1:], out, errw)
 }
 

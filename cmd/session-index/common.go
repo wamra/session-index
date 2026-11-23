@@ -14,8 +14,11 @@ import (
 
 	"github.com/wamra/session-index/internal/config"
 	"github.com/wamra/session-index/internal/embed"
+	"github.com/wamra/session-index/internal/ingest"
+	"github.com/wamra/session-index/internal/keys"
 	"github.com/wamra/session-index/internal/paths"
 	"github.com/wamra/session-index/internal/provider"
+	"github.com/wamra/session-index/internal/search"
 	"github.com/wamra/session-index/internal/store"
 )
 
@@ -34,13 +37,34 @@ func envOr(key, def string) string {
 	return def
 }
 
-func dbPath() string {
-	return envOr("SESSION_INDEX_DB", filepath.Join(homeDir(), ".claude", "cache", "session-archive", "archive.sqlite"))
+// filePaths reads only the "paths" section of config.json, so a mistake in
+// the embed or summarize sections cannot move the archive. A file that is not
+// valid JSON is an error: opening the archive refuses rather than falling back
+// to the default location.
+func filePaths() (config.Paths, error) {
+	p, _, err := config.LoadPaths(configPath())
+	return p, err
 }
 
-func defaultRoot() string {
-	return envOr("SESSION_INDEX_ROOT", filepath.Join(homeDir(), ".claude", "projects"))
+// resolvedPaths is the effective paths: environment over config.json over default.
+func resolvedPaths() config.Paths {
+	fp, _ := filePaths() // a broken file is reported by openStoreWith
+	return config.Config{Paths: fp}.ResolvePaths(homeDir(), os.Getenv)
 }
+
+// applyKeyDir hands paths.key_dir of config.json to the keys package.
+func applyKeyDir() {
+	fp, _ := filePaths()
+	if fp.KeyDir == "" {
+		keys.SetDir("")
+		return
+	}
+	keys.SetDir(config.Config{Paths: config.Paths{KeyDir: fp.KeyDir}}.ResolvePaths(homeDir(), func(string) string { return "" }).KeyDir)
+}
+
+func dbPath() string { return resolvedPaths().DB }
+
+func defaultRoot() string { return resolvedPaths().Root }
 
 // configPath is the config file location (SESSION_INDEX_CONFIG or
 // ~/.config/session-index/config.json).
@@ -56,6 +80,8 @@ func loadConfig() (config.Config, error) {
 	if err := c.Validate(); err != nil {
 		return config.Config{}, fmt.Errorf("config %s: %w", configPath(), err)
 	}
+	search.SetTuning(c.Search.DefaultK, c.Search.RRFK, time.Duration(c.Search.EmbedTimeoutMS)*time.Millisecond, c.Search.MaxTerms)
+	ingest.SetBackoff(time.Duration(c.Ingest.BackoffSeconds) * time.Second)
 	return c, nil
 }
 
@@ -82,7 +108,7 @@ func newSummarizer(cfg config.Config, model string) (provider.Summarizer, error)
 	return provider.NewSummarizer(sc)
 }
 
-func claudeDir() string { return filepath.Join(homeDir(), ".claude") }
+func claudeDir() string { return resolvedPaths().ClaudeDir }
 
 // ownProfile returns this machine's profile name (basename of the resolved
 // ~/.claude) and the profiles directory (its parent). When ~/.claude is a
@@ -125,6 +151,18 @@ func openStoreStrict() (*store.Store, error) {
 // silent) an invalid config falls back to the defaults (never for a NEW archive,
 // which is refused) and a mismatch is only noted.
 func openStoreWith(p string, allowDimsChange bool, notes io.Writer) (*store.Store, error) {
+	if _, err := filePaths(); err != nil {
+		// The file is not valid JSON, so paths.db is unknown. Strict opens fail. Archiving
+		// (notes set) carries on with the default location only when an archive already
+		// exists there, so a broken file never creates a second archive.
+		if notes == nil {
+			return nil, err
+		}
+		if _, serr := os.Stat(dbPath()); serr != nil {
+			return nil, fmt.Errorf("%w (and there is no archive at the default location %s to fall back to)", err, dbPath())
+		}
+		fmt.Fprintf(notes, "session-index: ignoring config.json, which is not valid JSON, and using the default archive location: %v\n", err)
+	}
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return nil, err
 	}

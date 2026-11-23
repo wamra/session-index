@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/wamra/session-index/internal/config"
 	"io"
 	"os"
 	"path/filepath"
@@ -74,15 +73,13 @@ func peerName(p string) string {
 }
 
 // searchPeers lists the peer archives to search: SESSION_INDEX_PEERS
-// (colon-separated paths) replaces automatic discovery of
+// (colon-separated paths) or paths.peers of config.json replaces automatic discovery of
 // <profiles>/*/cache/session-archive/archive.sqlite; --db paths are added.
 func searchPeers(extra []string, errw io.Writer) []paths.Peer {
 	var peers []paths.Peer
-	if env := config.WithLegacy(os.Getenv)("SESSION_INDEX_PEERS"); env != "" {
-		for _, p := range filepath.SplitList(env) {
-			if p != "" {
-				peers = append(peers, paths.Peer{Name: peerName(p), Path: p})
-			}
+	if list := resolvedPaths().Peers; len(list) > 0 {
+		for _, p := range list {
+			peers = append(peers, paths.Peer{Name: peerName(p), Path: p})
 		}
 	} else if own, pdir := ownProfile(); pdir != "" {
 		peers = paths.DiscoverPeers(pdir, own)

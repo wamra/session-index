@@ -35,9 +35,18 @@ const (
 	maxChunkRunes = 2000
 	minChunkRunes = 20
 	maxToolBytes  = 8192
-	backoffBase   = 30 * time.Second
 	backoffMax    = time.Hour
 )
+
+// backoffBase is the first wait before a failed read is retried; SetBackoff replaces it from config.json.
+var backoffBase = 30 * time.Second
+
+// SetBackoff sets the first retry wait. A non-positive value keeps the current one.
+func SetBackoff(d time.Duration) {
+	if d > 0 {
+		backoffBase = d
+	}
+}
 
 // Result describes one File call.
 type Result struct {

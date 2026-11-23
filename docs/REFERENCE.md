@@ -28,7 +28,7 @@ TCC caveat: a background process reading `~/.claude` when it resolves into `~/Li
 
 ## Database location
 
-WARNING: when `~/.claude` resolves into a cloud-synced tree (for example `~/Library/CloudStorage/...`), the archive database lives in that synced tree. A live WAL database under a sync client churns (the whole file re-uploads on change) and risks conflict copies or torn uploads; `flock` on File Provider volumes is not guaranteed. `session-index doctor` prints a warning when the resolved database path is under `/Users/*/Library/CloudStorage/` and runs `PRAGMA quick_check` (a failure exits 1). Set `SESSION_INDEX_DB` to a path outside the synced tree to relocate it.
+WARNING: when `~/.claude` resolves into a cloud-synced tree (for example `~/Library/CloudStorage/...`), the archive database lives in that synced tree. A live WAL database under a sync client churns (the whole file re-uploads on change) and risks conflict copies or torn uploads; `flock` on File Provider volumes is not guaranteed. `session-index doctor` prints a warning when the resolved database path is under `/Users/*/Library/CloudStorage/` and runs `PRAGMA quick_check` (a failure exits 1). Set `SESSION_INDEX_DB` or `paths.db` in `config.json` to a path outside the synced tree to relocate it.
 
 Before lowering Claude Code's `cleanupPeriodDays`, take a copy of the database outside the synced tree, because the archive then holds the only copy of old transcripts:
 
@@ -55,22 +55,29 @@ Vector search is a brute-force scan (22 ms p50 at about 15k vectors, linear in c
 2. Only if you enabled launchd: `launchctl bootout gui/$(id -u)/session-index.sweep`, then `rm ~/Library/LaunchAgents/session-index.sweep.plist`.
 3. Optionally delete the database and the binary.
 
-## Configuration (model providers)
+## Configuration
 
 Embeddings and summaries go through a provider. With no configuration the behavior is the historical one: Ollama at `http://localhost:11434`, `embeddinggemma` (768 dims) for embeddings, `gemma4:e4b` for summaries. Supported providers: `ollama`, `openai` (any OpenAI-compatible server: LM Studio, vLLM, OpenAI, Voyage), `anthropic` (summaries only) and `bedrock` (embeddings and summaries); see Hosted providers below.
 
 - `session-index config` prints the effective configuration (defaults, file and environment applied). API keys are never read into it: only the NAME of the key variable is shown, with `set`/`unset`.
 - `session-index config init [--force]` writes a default `~/.config/session-index/config.json` (JSON with a top-level `_comment`). Override the path with `SESSION_INDEX_CONFIG`. A missing file means defaults; unknown keys are an error.
+- Everything is configured in this one file; the only thing outside it is the file's own location (`SESSION_INDEX_CONFIG`). Environment variables stay as overrides and win over the file, and so do flags.
 - Precedence, lowest first: defaults, config file, `SESSION_INDEX_OLLAMA` (alias for both base URLs while the provider is `ollama`), then `SESSION_INDEX_EMBED_{PROVIDER,MODEL,BASE_URL}` and `SESSION_INDEX_SUMMARIZE_{PROVIDER,MODEL,BASE_URL}`.
 
 ```json
 {
+  "paths": {"db": "~/.claude/cache/session-archive/archive.sqlite", "claude_dir": "~/.claude", "root": "~/.claude/projects",
+            "key_dir": "~/.config/session-index/keys", "peers": []},
+  "search": {"default_k": 10, "rrf_k": 60, "embed_timeout_ms": 3000, "max_terms": 24},
+  "ingest": {"backoff_seconds": 30},
   "embed": {"provider": "ollama|openai|bedrock", "base_url": "...", "model": "...", "dims": 768,
             "doc_prefix": "...", "query_prefix": "...", "api_key_env": "NAME_OF_ENV_VAR"},
   "summarize": {"provider": "ollama|openai|anthropic|bedrock", "base_url": "...", "model": "...", "api_key_env": "...",
                 "max_tokens": 120, "temperature": 0.2, "enabled": true, "max_items_per_run": 0}
 }
 ```
+
+`paths` (every key optional, `~` is the home directory; the values shown are the defaults): `db` is the archive file (`SESSION_INDEX_DB`); `claude_dir` is the Claude Code profile folder, from which the profile name, the default `db` and `root`, and `settings.json` derive; `root` is the transcripts folder (`SESSION_INDEX_ROOT`, `--root`); the asset folders `file-history`, `plans`, `paste-cache`, `tasks` and `uploads` are read from the parent of `root`; `key_dir` holds the unlocked keys (`SESSION_INDEX_KEY_DIR`); `peers` lists peer archives to search and replaces discovery (`SESSION_INDEX_PEERS`, colon-separated). Only the `paths` section is read by the commands that archive, and it is read without checking the other sections, so a mistake in `embed` never moves the archive. A config file that is not valid JSON stops `embed`, `summarize`, `search` and `doctor`; archiving carries on in the default location only when an archive already exists there, and says so. `search` and `ingest` hold the knobs that change no stored data. The sizes that shape stored rows (chunk length, tool-output cap, excerpt length, asset text cap) are fixed in the code, because changing them would mix old and new rows until a rebuild. A binary older than a key you add rejects the file (unknown keys are an error), so update every machine before the key reaches a file they share.
 
 `api_key_env` names an environment variable; `Authorization: Bearer <value>` is sent only when that variable is set and non-empty. `summarize.enabled=false` turns summaries off; `max_items_per_run` > 0 caps one `summarize` run. Prefixes and `dims` default per known model (`embeddinggemma`: `title: none | text: ` / `task: search result | query: `, 768; `nomic-embed-text`: `search_document: ` / `search_query: `, 768; `all-minilm`: none, 384; `bge-*`: query prefix `Represent this sentence for searching relevant passages: `; `text-embedding-3-small`: none, 1536); config values override them. For any other model, leave `dims` out and it is detected from the first response.
 

@@ -195,11 +195,20 @@ func Unwrap(path string, passphrase []byte) (id string, key []byte, err error) {
 	return k.ID, key, nil
 }
 
+// dirOverride is paths.key_dir of config.json; the environment variable still wins.
+var dirOverride string
+
+// SetDir sets the key directory from the config file ("" clears it).
+func SetDir(d string) { dirOverride = d }
+
 // Dir returns the directory of unlocked keys on this machine:
-// $SESSION_INDEX_KEY_DIR, else ~/.config/session-index/keys.
+// $SESSION_INDEX_KEY_DIR, else paths.key_dir of config.json, else ~/.config/session-index/keys.
 func Dir() (string, error) {
 	if d := os.Getenv("SESSION_INDEX_KEY_DIR"); d != "" {
 		return d, nil
+	}
+	if dirOverride != "" {
+		return dirOverride, nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {

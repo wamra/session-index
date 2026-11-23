@@ -157,7 +157,7 @@ func cmdStats(args []string, out, errw io.Writer) int {
 	return 0
 }
 
-func settingsPathDefault() string { return filepath.Join(homeDir(), ".claude", "settings.json") }
+func settingsPathDefault() string { return filepath.Join(claudeDir(), "settings.json") }
 func plistPathDefault() string {
 	return filepath.Join(homeDir(), "Library", "LaunchAgents", launchd.Label+".plist")
 }

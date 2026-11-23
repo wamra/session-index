@@ -19,12 +19,30 @@ import (
 	"github.com/wamra/session-index/internal/store"
 )
 
-const (
+// Search knobs that change no stored data; SetTuning replaces them from config.json.
+var (
 	rrfK         = 60
 	embedTimeout = 3 * time.Second
 	defaultK     = 10
 	maxTerms     = 24
 )
+
+// SetTuning sets the default result count, the fusion constant, the query
+// embedding timeout and the full-text term limit. A non-positive value keeps the current one.
+func SetTuning(k, rrf int, embedWait time.Duration, terms int) {
+	if k > 0 {
+		defaultK = k
+	}
+	if rrf > 0 {
+		rrfK = rrf
+	}
+	if embedWait > 0 {
+		embedTimeout = embedWait
+	}
+	if terms > 0 {
+		maxTerms = terms
+	}
+}
 
 // Opts are the search options. Mode is auto|vector|fts|hybrid (empty = auto).
 type Opts struct {
