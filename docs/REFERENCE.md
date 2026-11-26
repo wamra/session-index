@@ -14,7 +14,7 @@ session-index install-hooks     # writes only ~/.claude/settings.json
 
 ## Platforms
 
-Only macOS is in daily use. On Linux and Windows the test suite passes in CI (GitHub-hosted amd64 runners), but neither has been used with a real Claude Code profile, and `install.ps1` has not been run. On Windows, file locking uses LockFileEx, detached embedding uses DETACHED_PROCESS, and restore uses hard links. The archive uses a WAL there as elsewhere, through a patched driver (see the design note). The cloud-sync warning recognises only the macOS CloudStorage path.
+Only macOS is in daily use. On Linux and Windows the test suite passes in CI (GitHub-hosted amd64 runners), but neither has been used with a real Claude Code profile, and `install.ps1` has not been run. On Windows, file locking uses LockFileEx, detached embedding uses DETACHED_PROCESS, and restore uses hard links. The archive uses a WAL there as elsewhere, through a patched driver (see the design note). The cloud-sync warning is name-based and works on every platform (see Database location).
 
 ## Catch-up
 
@@ -28,7 +28,7 @@ TCC caveat: a background process reading `~/.claude` when it resolves into `~/Li
 
 ## Database location
 
-WARNING: when `~/.claude` resolves into a cloud-synced tree (for example `~/Library/CloudStorage/...`), the archive database lives in that synced tree. A live WAL database under a sync client churns (the whole file re-uploads on change) and risks conflict copies or torn uploads; `flock` on File Provider volumes is not guaranteed. `session-index doctor` prints a warning when the resolved database path is under `/Users/*/Library/CloudStorage/` and runs `PRAGMA quick_check` (a failure exits 1). Set `SESSION_INDEX_DB` or `paths.db` in `config.json` to a path outside the synced tree to relocate it.
+WARNING: when `~/.claude` resolves into a cloud-synced tree (for example `~/Library/CloudStorage/...`), the archive database lives in that synced tree. A live WAL database under a sync client churns (the whole file re-uploads on change) and risks conflict copies or torn uploads; `flock` on File Provider volumes is not guaranteed. The check is a name heuristic on the resolved database path (symlinks followed), not a probe of the sync client. It flags a path that passes through `Library/CloudStorage` or `Library/Mobile Documents`, or any folder above the database file named `OneDrive*` (prefix match, any case), `Dropbox`, `Google Drive`, `GoogleDrive`, `iCloud Drive` or `iCloudDrive` (exact match, any case). Other sync folders, and Dropbox folders with a suffix such as `Dropbox (Personal)`, are not detected. `session-index doctor` prints the warning whenever it matches and runs `PRAGMA quick_check` (a failure exits 1). `session-index sweep` prints it once on stderr the first time it runs against a flagged database, then writes a small marker file `.cloud-sync-warned` next to the database; the hook (`ingest --stdin-hook`) never prints it. Set `SESSION_INDEX_DB` or `paths.db` in `config.json` to a path outside the synced tree to relocate it.
 
 Before lowering Claude Code's `cleanupPeriodDays`, take a copy of the database outside the synced tree, because the archive then holds the only copy of old transcripts:
 
@@ -39,11 +39,11 @@ sqlite3 archive.sqlite ".backup /path/outside/sync/snapshot.sqlite"
 
 These commands work on a plaintext archive only; for an encrypted one see [Encryption](#encryption).
 
-Vector search is a brute-force scan (22 ms p50 at about 15k vectors, linear in corpus size) and the 100 ms p95 target passes only barely at the current size; expect it to grow with the corpus.
+Vector search is a brute-force scan (22 ms p50 at about 15k vectors on an Apple M1 Ultra, 2026-11, linear in corpus size); expect it to grow with the corpus.
 
 ## What gets written where
 
-- Database: `~/.claude/cache/session-archive/archive.sqlite`.
+- Database: `~/.claude/cache/session-archive/archive.sqlite`, with `-wal` and `-shm` while open, `embed.log` (output of the detached `embed`), `wazero-cache/` (compiled SQLite) and `.cloud-sync-warned` in the same folder. A new folder is created mode 0700; the database files and `embed.log` are 0600 (not set on Windows). An existing folder keeps its mode.
 - Only after `encrypt`: `archive.key` next to the database, the unlocked key in `~/.config/session-index/keys/`, and the kept copy `archive.sqlite.plaintext-<UTC timestamp>`.
 - `~/.claude/settings.json`: three async hook entries (`Stop`, `SubagentStop`, `SessionEnd`) running `<path of the session-index binary> ingest --stdin-hook --embed` (timeout 10 s). Existing hooks are kept. A one-time backup is written to `~/.claude/settings.json.bak-session-index`.
 - Only with `install-hooks --launchd`: `~/Library/LaunchAgents/session-index.sweep.plist`, which runs `session-index sweep --embed` at load and every 600 s (log at `~/.claude/cache/session-archive/sweep.log`).
@@ -180,7 +180,7 @@ Because transcripts are archived losslessly (raw lines are stored in `records.ra
 Off by default. `session-index encrypt` encrypts the whole archive file (raw lines, FTS indexes, vectors, and its journal or WAL) with the SQLite driver's Adiantum VFS (`vfs/adiantum`, 4 KiB blocks). The file keeps its name, `archive.sqlite`.
 
 - Key: 32 random bytes. `archive.key`, next to the archive, holds the key locked with your passphrase (Argon2id: time 3, memory 64 MiB, 4 threads; XChaCha20-Poly1305) and syncs with the archive. The unlocked key is cached per machine in `~/.config/session-index/keys/<key id>.key` (mode 0600), so hooks and search run without a prompt. `SESSION_INDEX_KEY_DIR` moves that directory; keep it out of any synced tree.
-- `encrypt [--wait 30s] [--recover]` asks for a new passphrase twice (at least 8 characters; one line from stdin when stdin is not a terminal), writes the key file, waits up to `--wait` for sole access to the archive, copies it with `VACUUM INTO`, verifies the copy (`PRAGMA integrity_check`, same tables, same row counts) and swaps the files. Embeddings and summaries are copied, not rebuilt. The plaintext file stays as `archive.sqlite.plaintext-<UTC timestamp>`: nothing deletes it, and `doctor` warns while it exists. It needs free disk space about the size of the archive. A 1.3 GB archive took about 20 s.
+- `encrypt [--wait 30s] [--recover]` asks for a new passphrase twice (at least 8 characters; one line from stdin when stdin is not a terminal), writes the key file, waits up to `--wait` for sole access to the archive, copies it with `VACUUM INTO`, verifies the copy (`PRAGMA integrity_check`, same tables, same row counts) and swaps the files. Embeddings and summaries are copied, not rebuilt. The plaintext file stays as `archive.sqlite.plaintext-<UTC timestamp>`: nothing deletes it, and `doctor` warns while it exists. It needs free disk space about the size of the archive. A 1.3 GB archive took about 20 s on an Apple M1 Ultra (2026-11).
 - `decrypt [--wait 30s] [--recover]` is the reverse. The encrypted file stays as `archive.sqlite.encrypted-<UTC timestamp>` and the key file stays, so a later `encrypt` reuses it (it asks for the same passphrase).
 - `unlock` asks for the passphrase once and caches the key for the own archive and for every peer archive that has a key file. Run it once on each other machine. `lock` removes the cached keys from this machine.
 - An archive that does not exist yet is created encrypted when `archive.key` is already next to its path.
@@ -201,7 +201,7 @@ The tool was called `session-archive`. Existing setups keep working: `SESSION_AR
 
 Chosen: `github.com/ncruces/go-sqlite3` v0.21.3 (pure Go, WASM SQLite, no cgo) with `github.com/asg017/sqlite-vec-go-bindings/ncruces` v0.1.6.
 
-- Benchmark: 15,273 x 768 float32 vectors in `chunk_vec`, 100 KNN k=50 queries: p50 = 22.1 ms, p95 = 23.6 ms (threshold 40 ms).
+- Benchmark (Apple M1 Ultra, 2026-11): 15,273 x 768 float32 vectors in `chunk_vec`, 100 KNN k=50 queries: p50 = 22.1 ms, p95 = 23.6 ms (threshold 40 ms).
 - `mattn/go-sqlite3` + cgo bindings was not run: ncruces p50 is below the 40 ms switch threshold, so no fallback comparison number exists.
 - Version pin: the binding's embedded wasm only links against ncruces v0.19.0 to v0.21.3 and v0.23.3 (tested: v0.16.3 and v0.18.0 fail on `go_busy_timeout` signature, v0.22.0 on atomics, v0.25.2 on `go_final`; ncruces v0.37.0 no longer has `sqlite3.Binary`, so the binding does not compile). v0.21.3 is the newest tag in the contiguous passing range.
 - Windows: v0.21.3 has three WAL defects there. (1) It maps a WAL-index region at an offset Windows rejects once a WAL grows past about 4,000 pages ("disk I/O error"; ncruces/go-sqlite3 issue 330, fixed upstream in v0.30.1, which the binding does not link against). (2) It fills every missing region slot with a view of the requested region, so a second connection can read a wrong index ("database disk image is malformed"). (3) Its timed file lock can be granted after it timed out and is then never released, so every writer waits out its busy timeout ("database is locked"; removed upstream in v0.25.0, issue 254). `go.mod` replaces the driver with `github.com/wamra/go-sqlite3`, branch `wamra/v0.21.3-windows-wal`: v0.21.3 plus the three fixes. The archive is opened with `journal_mode=WAL` on every platform.

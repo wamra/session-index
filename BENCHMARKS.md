@@ -1,10 +1,10 @@
 # Benchmarks (2026-11-13, Apple M1 Ultra, 128 GB RAM, macOS)
 
-Archive: 3 profiles in a cloud-synced folder (`desktop`, `laptop`, `default`), 172,801 records, 30,100 chunks embedded with Ollama `embeddinggemma` (768d), 302 sessions, ~790 MB `archive.sqlite` under `~/.claude/cache/session-archive/`.
+Archive (one user's real data, not a published dataset): 3 profiles in a cloud-synced folder (`desktop`, `laptop`, `default`), 172,801 records, 30,100 chunks embedded with Ollama `embeddinggemma` (768d), 302 sessions, ~790 MB `archive.sqlite` under `~/.claude/cache/session-archive/`.
 
 ## Retrieval quality — 558 labeled queries (bench/labeled_eval, mode auto, K=10)
 
-The labeled query set is derived from private sessions and is not included in the repository; the harness is.
+The labeled query set is derived from the author's own sessions and is not included in the repository; the harness is. Run it against your own archive to get comparable numbers.
 
 | Category | n | MRR | Recall@5 | p95 (in-process) |
 |---|---|---|---|---|
@@ -48,10 +48,10 @@ Query embedding (Ollama, warm) is 35–60 ms of every vector-route number. KNN o
 
 vec0 KNN is a linear scan: ~22 ms at 15k vectors, ~40 ms at 30k; expect ~130 ms at 100k. The exact profile scan is linear in profile size and should stay under 2,000 chunks. Cross-file search adds one KNN per peer archive.
 
-## Acceptance numbers (2026-11-08, same machine, first backfill)
+## Acceptance numbers (2026-11-08, Apple M1 Ultra, 128 GB RAM, macOS, first backfill)
 
-- Backfill (`backfill --embed`): 1177 files, 127,417 lines/records, 21,299 chunks, all 21,299 embedded, 0 pending, 0 failed; wall time 8m01.9s (target < 10 min).
+- Backfill (`backfill --embed`): 1177 files, 127,417 lines/records, 21,299 chunks, all 21,299 embedded, 0 pending, 0 failed; wall time 8m01.9s.
 - Archive after backfill: 215 sessions (190 main, 25 subagent), 87,373 messages, 56,484 tool_fts rows, 745.5 MiB.
 - Restore check: 5 random main sessions restored with `restore --to`; all 24 restored files were byte-identical (SHA-256) to the originals.
-- Labeled eval (558 queries, mode auto, K=10, `go run ./bench/labeled_eval`): overall MRR 0.682, Recall@5 0.823, p95 99.3 ms (targets: MRR >= 0.70, p95 <= 100 ms; MRR is below target, not tuned). Per category: identifier MRR 0.813, multichunk 0.843, ambiguous 0.779, paraphrase 0.584.
-- Hook latency: `ingest --stdin-hook --embed` took 0.033-0.035 s on an already archived transcript and 0.046-0.149 s on the live session transcript (target < 1 s).
+- Labeled eval (558 queries, mode auto, K=10, `go run ./bench/labeled_eval`): overall MRR 0.682, Recall@5 0.823, p95 99.3 ms (not tuned). Per category: identifier MRR 0.813, multichunk 0.843, ambiguous 0.779, paraphrase 0.584.
+- Hook latency: `ingest --stdin-hook --embed` took 0.033-0.035 s on an already archived transcript and 0.046-0.149 s on the live session transcript.
