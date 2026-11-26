@@ -1,6 +1,6 @@
 module github.com/wamra/session-index
 
-go 1.24.1
+go 1.26.0
 
 require (
 	github.com/ncruces/go-sqlite3 v0.21.3
@@ -13,8 +13,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.63.13
 	github.com/aws/smithy-go v1.28.9
 	github.com/klauspost/compress v1.19.2
-	golang.org/x/crypto v0.31.0
-	golang.org/x/term v0.32.0
+	golang.org/x/crypto v0.59.0
+	golang.org/x/term v0.48.0
 )
 
 require (
@@ -36,7 +36,7 @@ require (
 require (
 	github.com/asg017/sqlite-vec-go-bindings v0.1.6
 	github.com/ncruces/julianday v1.0.0 // indirect
-	golang.org/x/sys v0.33.0
+	golang.org/x/sys v0.50.0
 )
 
 replace github.com/ncruces/go-sqlite3 => github.com/wamra/go-sqlite3 v0.21.4-0.20261122011840-db0c8d9b495d
