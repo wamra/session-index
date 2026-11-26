@@ -1,10 +1,10 @@
 module github.com/wamra/session-index
 
-go 1.24.1
+go 1.25.0
 
 require (
 	github.com/ncruces/go-sqlite3 v0.21.3
-	github.com/tetratelabs/wazero v1.9.0
+	github.com/tetratelabs/wazero v1.12.0
 )
 
 require (
@@ -36,7 +36,7 @@ require (
 require (
 	github.com/asg017/sqlite-vec-go-bindings v0.1.6
 	github.com/ncruces/julianday v1.0.0 // indirect
-	golang.org/x/sys v0.33.0
+	golang.org/x/sys v0.44.0
 )
 
 replace github.com/ncruces/go-sqlite3 => github.com/wamra/go-sqlite3 v0.21.4-0.20261122011840-db0c8d9b495d
