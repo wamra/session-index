@@ -10,7 +10,7 @@ require (
 require (
 	github.com/aws/aws-sdk-go-v2 v1.48.0
 	github.com/aws/aws-sdk-go-v2/config v1.33.18
-	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.63.13
+	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.64.0
 	github.com/aws/smithy-go v1.28.9
 	github.com/klauspost/compress v1.19.2
 	golang.org/x/crypto v0.31.0
