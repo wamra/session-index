@@ -230,7 +230,7 @@ var spawnEmbed = func(st *store.Store) error {
 	if err != nil {
 		return err
 	}
-	lf, err := os.OpenFile(filepath.Join(filepath.Dir(st.Path()), "embed.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	lf, err := os.OpenFile(filepath.Join(filepath.Dir(st.Path()), "embed.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return err
 	}

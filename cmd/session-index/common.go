@@ -164,7 +164,7 @@ func openStoreWith(p string, allowDimsChange bool, notes io.Writer) (*store.Stor
 		}
 		fmt.Fprintf(notes, "session-index: ignoring config.json, which is not valid JSON, and using the default archive location: %v\n", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return nil, err
 	}
 	_, existing := os.Stat(p)

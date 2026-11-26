@@ -49,7 +49,7 @@ func setupCompilationCache(dbPath string) {
 		if dir == "" {
 			return
 		}
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		if err := os.MkdirAll(dir, dirMode); err != nil {
 			fmt.Fprintf(os.Stderr, "session-index: compilation cache disabled: %v\n", err)
 			return
 		}
@@ -115,6 +115,9 @@ func OpenWith(path string, o Opts) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := prepareFiles(path); err != nil {
+		return nil, err
+	}
 	setupCompilationCache(path)
 	q := url.Values{}
 	q.Add("_pragma", "busy_timeout(30000)")
@@ -137,6 +140,7 @@ func OpenWith(path string, o Opts) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("migrate: %w", redact(err, key))
 	}
+	tightenFiles(path)
 	return &Store{db: db, path: path}, nil
 }
 

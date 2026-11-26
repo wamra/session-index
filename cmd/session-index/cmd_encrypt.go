@@ -169,7 +169,7 @@ func cmdEncrypt(args []string, out, errw io.Writer) int {
 		if err != nil {
 			return fail(err)
 		}
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 			return fail(err)
 		}
 		if id, key, err = keys.Create(kp, pass, kdfParams); err != nil {
