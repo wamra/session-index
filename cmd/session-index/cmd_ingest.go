@@ -300,6 +300,7 @@ func cmdSweep(args []string, out, errw io.Writer) int {
 		fmt.Fprintf(errw, "open archive: %v\n", err)
 		return 1
 	}
+	warnCloudOnce(st.Path(), errw)
 	defer closeWriter(st, errw)
 	ctx := context.Background()
 	var total ingest.Summary

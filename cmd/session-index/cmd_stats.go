@@ -607,3 +607,22 @@ func sampleVerify(ctx context.Context, db *sql.DB, out io.Writer) bool {
 	}
 	return good
 }
+
+// cloudWarnMarker is created next to the database once the sweep warning has been shown.
+const cloudWarnMarker = ".cloud-sync-warned"
+
+// warnCloudOnce prints one stderr warning, the first time `sweep` runs against a database that
+// cloudStorage flags, then leaves a marker file next to the database so it is not repeated.
+// It is only called by `sweep`; the hook command (`ingest --stdin-hook`) never calls it and
+// stays silent. Failing to write the marker only means the warning can appear again.
+func warnCloudOnce(dbFile string, errw io.Writer) {
+	if !cloudStorage(dbFile) {
+		return
+	}
+	marker := filepath.Join(filepath.Dir(dbFile), cloudWarnMarker)
+	if _, err := os.Stat(marker); err == nil {
+		return
+	}
+	fmt.Fprintf(errw, "session-index: warning: the archive database %s appears to be under a cloud-synced folder (a path through Library/CloudStorage or Library/Mobile Documents, or a folder named OneDrive*, Dropbox, Google Drive or iCloud Drive). Sync clients can upload a live WAL database mid-write or create conflict copies; set SESSION_INDEX_DB or paths.db in config.json to a local path outside the synced tree. This is shown once; `session-index doctor` repeats it.\n", dbFile)
+	_ = os.WriteFile(marker, []byte("cloud-sync warning shown\n"), 0o600)
+}

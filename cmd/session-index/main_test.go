@@ -369,3 +369,26 @@ func TestCLISearchQueryStartingWithDash(t *testing.T) {
 		t.Fatalf("show -- -nosuchsession exit %d, want 1 (unknown session, not a flag error)", code)
 	}
 }
+
+func TestSweepWarnsOnceAboutCloudSyncedDatabase(t *testing.T) {
+	root, _ := seedRoot(t)
+	db := filepath.Join(t.TempDir(), "OneDrive", "archive.sqlite")
+	t.Setenv("SESSION_INDEX_DB", db)
+	code, _, e := runCLI(t, "sweep", "--root", root)
+	if code != 0 || !strings.Contains(e, "cloud-synced folder") {
+		t.Fatalf("first sweep: %d stderr=%q", code, e)
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(db), cloudWarnMarker)); err != nil {
+		t.Fatalf("marker not written: %v", err)
+	}
+	if code, _, e = runCLI(t, "sweep", "--root", root); code != 0 || strings.Contains(e, "cloud-synced folder") {
+		t.Fatalf("second sweep must be quiet: %d stderr=%q", code, e)
+	}
+}
+
+func TestSweepIsQuietOutsideCloudFolders(t *testing.T) {
+	root, _ := seedRoot(t)
+	if code, _, e := runCLI(t, "sweep", "--root", root); code != 0 || strings.Contains(e, "cloud-synced") {
+		t.Fatalf("%d stderr=%q", code, e)
+	}
+}
