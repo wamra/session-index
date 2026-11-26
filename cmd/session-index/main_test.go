@@ -345,3 +345,27 @@ func TestCloudStorageDetection(t *testing.T) {
 		}
 	}
 }
+
+func TestCLISearchQueryStartingWithDash(t *testing.T) {
+	seedRoot(t)
+	if code, _, e := runCLI(t, "sweep"); code != 0 {
+		t.Fatalf("sweep %d %s", code, e)
+	}
+	// without "--" a leading dash is a flag: rejected, never run as a query
+	if code, _, _ := runCLI(t, "search", "-zebrafish", "--mode", "fts"); code != 2 {
+		t.Fatalf("unterminated dash query exit %d, want 2", code)
+	}
+	// flags before "--" still apply; the query after it may start with "-" or be a flag name
+	code, out, e := runCLI(t, "search", "--mode", "fts", "--json", "--", "-zebrafish")
+	if code != 0 || !strings.Contains(out, "zebrafish") {
+		t.Fatalf("search -- -zebrafish: %d %q %s", code, out, e)
+	}
+	code, out, e = runCLI(t, "search", "--mode", "fts", "--", "--json")
+	if code != 0 || strings.Contains(out, "\"hits\"") {
+		t.Fatalf("a flag-like query must be text, not a flag: %d %q %s", code, out, e)
+	}
+	// show takes the same terminator
+	if code, _, _ := runCLI(t, "show", "--", "-nosuchsession"); code != 1 {
+		t.Fatalf("show -- -nosuchsession exit %d, want 1 (unknown session, not a flag error)", code)
+	}
+}

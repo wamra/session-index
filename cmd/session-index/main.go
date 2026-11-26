@@ -42,8 +42,8 @@ func init() {
 		"ingest":          {cmdIngest, "ingest (--transcript PATH | --stdin-hook) [--profile NAME] [--embed]"},
 		"sweep":           {cmdSweep, "sweep [--root DIR --profile NAME | --all-profiles] [--embed]"},
 		"embed":           {cmdEmbed, "embed [--batch 128] [--max N] [--summarize-budget 45s]"},
-		"search":          {cmdSearch, "search QUERY [--mode auto|vector|fts|hybrid] [--k 10] [--since 7d|24h|YYYY-MM-DD] [--project SUBSTR] [--role user|assistant] [--kind main|subagent|workflow|plan] [--profile NAME] [--db PATH]... [--json]"},
-		"show":            {cmdShow, "show SESSION_ID [--around UUID] [--n 20] [--changes]"},
+		"search":          {cmdSearch, "search [--] QUERY [--mode auto|vector|fts|hybrid] [--k 10] [--since 7d|24h|YYYY-MM-DD] [--project SUBSTR] [--role user|assistant] [--kind main|subagent|workflow|plan] [--profile NAME] [--db PATH]... [--json]"},
+		"show":            {cmdShow, "show [--] SESSION_ID [--around UUID] [--n 20] [--changes]"},
 		"files":           {cmdFiles, "files SUBSTRING [--profile NAME] [--limit 200] [--json]"},
 		"summarize":       {cmdSummarize, "summarize [--max N] [--budget 60s] [--model NAME] [--parallel P] [--kind tool,change,asset] [--retry-failed [REASON]]"},
 		"restore":         {cmdRestore, "restore SESSION_ID|plans:PROFILE[/FILE]|paste-cache:PROFILE|tasks:PROFILE|uploads:PROFILE (--to DIR | --in-place) [--with-file-history] [--with-profile-dirs]"},
@@ -103,8 +103,21 @@ func newFlags(name string, errw io.Writer) *flag.FlagSet {
 }
 
 // parseInterspersed parses flags that may appear before or after positional
-// arguments and returns the positionals.
+// arguments and returns the positionals. A bare "--" ends flag parsing: everything
+// after it is positional even when it starts with "-" (search -- -rf).
 func parseInterspersed(fs *flag.FlagSet, args []string) ([]string, error) {
+	var tail []string
+	for i, a := range args {
+		if a == "--" {
+			args, tail = args[:i:i], args[i+1:]
+			break
+		}
+	}
+	pos, err := parseFlagsAmong(fs, args)
+	return append(pos, tail...), err
+}
+
+func parseFlagsAmong(fs *flag.FlagSet, args []string) ([]string, error) {
 	var pos []string
 	for {
 		if err := fs.Parse(args); err != nil {

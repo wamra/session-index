@@ -29,7 +29,7 @@ test('the search tool runs the binary with --json and formats hits', async ($, o
   const out = await $.tool.call({ tool: 'mcp__session-index-search__search', query: 'firewall', since: '7d', k: 3 })
   expect(seen[0]).toBe('sh')
   expect(seen[3]).toMatch(/\/bin\/session-index$/)
-  expect(seen.slice(4)).toEqual(['search', 'firewall', '--json', '--since', '7d', '--k', '3'])
+  expect(seen.slice(4)).toEqual(['search', '--json', '--since', '7d', '--k', '3', '--', 'firewall'])
   expect(String((out as { result?: unknown }).result)).toContain('11111111-222')
 })
 
@@ -78,4 +78,31 @@ test('when the launcher cannot even start (no sh) it still falls back to session
   const out = await $.tool.call({ tool: 'mcp__session-index-search__search', query: 'firewall' })
   expect(calls).toEqual(['sh', 'session-index'])
   expect(String((out as { result?: unknown }).result)).toContain('11111111-222')
+})
+
+test('a query that starts with a dash or holds shell syntax reaches the binary as one argv element after --', async ($, on) => {
+  let seen: readonly string[] = []
+  on('process.run', (_, e) => {
+    seen = e.argv
+    return { value: { exitCode: 0, stdout: HITS, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  on('tool.register', () => ({ value: {} }))
+  on('command.register', () => ({ value: { command: 'sessions' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  const nasty = '--mode vector; rm -rf ~ $(id) `id`'
+  await $.tool.call({ tool: 'mcp__session-index-search__search', query: nasty })
+  expect(seen.slice(4)).toEqual(['search', '--json', '--k', '8', '--', nasty])
+})
+
+test('a session id cannot be an option', async ($, on) => {
+  on('process.run', () => ({ value: { exitCode: 0, stdout: 'x', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('tool.register', () => ({ value: {} }))
+  on('command.register', () => ({ value: { command: 'sessions' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  const bad = await $.tool.call({ tool: 'mcp__session-index-search__show', session_id: '--n' })
+  expect((bad as { deny?: string }).deny).toBeDefined()
 })
