@@ -1,7 +1,6 @@
 {
   "name": "session-index-search",
-  "version": "0.1.0",
-  "description": "Search, read and count archived Claude Code sessions through the session-index binary: two model tools and a /sessions command.",
+  "description": "Source of the search and show tools and the /sessions command that ship inside the session-index plugin (only userConfig is read by the build).",
   "userConfig": {
     "binary": {
       "type": "string",

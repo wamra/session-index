@@ -6,8 +6,8 @@ A Claude Code mod that puts the `session-index` binary inside the session. It gi
 - `show` tool: reads messages from one archived session, optionally a window around a message uuid.
 - `/sessions <query>`: prints search hits. `/sessions show <id>` reads a session. `/sessions` alone prints archive stats.
 
-Setup: install the `session-index` binary and make sure it is on PATH, or set the plugin option `binary` to its full path. Semantic search needs Ollama with the embeddinggemma model; otherwise prose queries fall back to full-text search.
+This directory is the source of the mod that ships inside the `session-index` plugin (see the repository README). The build (`scripts/build-plugin.sh`) renames its tool prefix to `mcp__session-index__`, so installing the plugin is the supported way to get it; this folder is not a separate marketplace entry.
 
-The mod only reads. Restoring transcripts is left to `session-index restore --to DIR`.
+The plugin bundles the `session-index` binary and runs it through a launcher. The launcher falls back to `session-index` on PATH; set the plugin option `binary` to a command or full path to use a different executable. Semantic search needs Ollama with the embeddinggemma model (or another configured provider); otherwise prose queries fall back to full-text search.
 
-Install from a marketplace: `/plugin install session-index-search --marketplace <owner>/<repo>` (the repository that holds this plugin), or pass a local folder path instead.
+The mod only reads. Archived text it returns is marked as untrusted data. Restoring transcripts is left to `session-index restore --to DIR`.
