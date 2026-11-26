@@ -18,16 +18,16 @@ cp "$MOD/hooks/register.ts" "$OUT/hooks/"
 # plugin, so the tool.call matchers (and the option name in the error text) follow that name.
 perl -pi -e 's/mcp__session-index-search__/mcp__session-index__/g; s/session-index-search "binary"/session-index "binary"/g' "$OUT/hooks/register.ts"
 cp "$ROOT/skills/session-search/SKILL.md" "$OUT/skills/session-search/"
-cp "$ROOT/LICENSE" "$ROOT/README.md" "$OUT/"
-# plugin.json: the archive plugin plus the mod's "binary" option, with no pinned version (the
-# commit SHA is then the version, so a rebuilt branch reaches users). hooks.json: the archive
+cp "$ROOT/LICENSE" "$ROOT/THIRD_PARTY_NOTICES.md" "$ROOT/README.md" "$OUT/"
+# plugin.json: the archive plugin (description and licence from the source manifest) plus the
+# mod's "binary" option, with no pinned version (the commit SHA is then the version, so a rebuilt
+# branch reaches users, and the marketplace entry does not pin one either). hooks.json: the archive
 # hooks call the bundled launcher and never fail the session, plus the mod.
 node - "$ROOT" "$MOD" "$OUT" <<'JS'
 const fs = require('fs'), [root, mod, out] = process.argv.slice(2)
 const read = (p) => JSON.parse(fs.readFileSync(p, 'utf8'))
 const plugin = read(`${root}/.claude-plugin/plugin.json`)
 delete plugin.version
-plugin.description = 'Lossless, searchable index of your Claude Code sessions: hooks keep it current, a skill and the search and show tools query it, /sessions prints hits. Binaries for macOS, Linux and Windows are bundled.'
 plugin.userConfig = read(`${mod}/.claude-plugin/plugin.json`).userConfig
 fs.writeFileSync(`${out}/.claude-plugin/plugin.json`, JSON.stringify(plugin, null, 2) + '\n')
 const hooks = read(`${root}/hooks/hooks.json`)

@@ -2,7 +2,10 @@
   "name": "session-index",
   "owner": { "name": "wamra" },
   "plugins": [
-    { "name": "session-index", "source": "./", "description": "Hooks that keep the session index current, plus the session-search skill." },
-    { "name": "session-index-search", "source": "./plugins/session-index-search", "description": "Search and show tools for the model, and a /sessions command." }
+    {
+      "name": "session-index",
+      "source": { "source": "github", "repo": "wamra/session-index", "ref": "plugin" },
+      "description": "Lossless, searchable index of your Claude Code sessions: hooks keep it current, a skill and the search and show tools query it, /sessions prints hits. Binaries for macOS, Linux and Windows are bundled."
+    }
   ]
 }

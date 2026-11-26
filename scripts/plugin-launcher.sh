@@ -1,6 +1,7 @@
 #!/bin/sh
 # Runs the session-index binary bundled for this OS and CPU; else session-index from PATH.
-# Exit 127 when neither can run, so callers can fall back or report it.
+# Exit 127 when neither can run, so callers can fall back or report it. Hook commands append
+# "|| true", so a missing binary never fails a Claude Code session.
 dir=$(cd "$(dirname "$0")" && pwd)
 case "$(uname -s)" in
   Darwin) os=darwin ;;
@@ -32,5 +33,5 @@ for p in $PATH; do
   done
 done
 IFS=$oldifs
-echo "session-index: no usable binary for ${os:-unknown}/${arch:-unknown} in $dir and none on PATH" >&2
+echo "session-index: no bundled binary for ${os:-unknown}/${arch:-unknown} in $dir and no session-index on PATH. Install session-index and put it on PATH, or set the plugin option \"binary\" to its full path." >&2
 exit 127

@@ -11,11 +11,17 @@ done
 [ -f "$OUT/bin/session-index" ] || fail "missing the launcher"
 [ -z "$(find "$OUT/bin" -type f ! -perm -u+x)" ] || fail "a file in bin/ is not executable"
 [ ! -e "$OUT/plugins" ] || fail "nested plugins/ must not be shipped"
+[ -z "$(find "$OUT" -name plugin.json -not -path "$OUT/.claude-plugin/plugin.json")" ] || fail "more than one plugin.json: the tree must hold one plugin"
+for f in LICENSE THIRD_PARTY_NOTICES.md README.md skills/session-search/SKILL.md; do
+  [ -s "$OUT/$f" ] || fail "missing or empty $f"
+done
+grep -q 'UNKNOWN' "$OUT/THIRD_PARTY_NOTICES.md" && echo "check-plugin: note: THIRD_PARTY_NOTICES.md lists a module as UNKNOWN" >&2 || true
 [ "$(du -sk "$OUT" | cut -f1)" -lt 120000 ] || fail "tree is larger than 120 MB"
 node - "$OUT" <<'JS' || fail "manifest check failed"
 const fs = require('fs'), out = process.argv[2]
 const plugin = JSON.parse(fs.readFileSync(`${out}/.claude-plugin/plugin.json`, 'utf8'))
 if ('version' in plugin) throw new Error('plugin.json pins a version')
+if (/on PATH/i.test(plugin.description || '') || !/bundled/i.test(plugin.description || '')) throw new Error('plugin.json description must say the binaries are bundled and must not ask for one on PATH')
 if (!plugin.userConfig || !plugin.userConfig.binary) throw new Error('plugin.json has no binary option')
 const hooks = JSON.parse(fs.readFileSync(`${out}/hooks/hooks.json`, 'utf8'))
 const mod = fs.readFileSync(`${out}/hooks/${hooks.modules[0]}`, 'utf8')
@@ -25,10 +31,14 @@ if (!Array.isArray(hooks.modules) || !fs.existsSync(`${out}/hooks/${hooks.module
 const cmds = Object.values(hooks.hooks).flat().flatMap((g) => g.hooks.map((h) => h.command))
 if (cmds.length === 0 || !cmds.every((c) => c.includes('${CLAUDE_PLUGIN_ROOT}/bin/session-index') && c.endsWith('|| true'))) throw new Error('hook commands do not use the bundled launcher')
 JS
-# With no bundled binary and nothing on PATH the launcher must exit 127, not loop or hang.
+# With no bundled binary and nothing on PATH the launcher must exit 127 with a message, not loop or hang.
 iso="$(mktemp -d)"; cp "$OUT/bin/session-index" "$iso/"; code=0
 ( PATH="$iso:/usr/bin:/bin" "$iso/session-index" version >/dev/null 2>&1 ) || code=$?
 [ "$code" = 127 ] || fail "launcher without a binary exited $code, not 127"
+msg="$(PATH="$iso:/usr/bin:/bin" "$iso/session-index" version 2>&1 >/dev/null || true)"
+case "$msg" in *"no bundled binary"*) ;; *) fail "launcher without a binary printed no clear message: $msg" ;; esac
+# A hook command (launcher plus "|| true") must exit 0 in that situation.
+( PATH="$iso:/usr/bin:/bin" sh -c 'sh "$1" ingest --stdin-hook </dev/null 2>/dev/null || true' _ "$iso/session-index" ) || fail "hook command form failed the session"
 got="$("$OUT/bin/session-index" version)" || fail "launcher could not run the bundled binary"
 [ -z "$WANT" ] || case "$got" in *"$WANT"*) ;; *) fail "version '$got' does not contain '$WANT'" ;; esac
 echo "check-plugin: ok ($got)"
