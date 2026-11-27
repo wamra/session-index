@@ -393,3 +393,14 @@ func TestOpenAIHealthRestrictedKeyFallsBackToProbe(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestQwen3FallbackDims(t *testing.T) {
+	for m, want := range map[string]int{
+		"qwen3-embedding": 1024, "qwen3-embedding:latest": 1024, "qwen3-embedding:0.6b": 1024,
+		"qwen3-embedding:4b": 2560, "qwen3-embedding:8b-q8_0": 4096, "mystery": 0, "nomic-embed-text": 0,
+	} {
+		if got := FallbackDims(m); got != want {
+			t.Errorf("%s: %d want %d", m, got, want)
+		}
+	}
+}

@@ -145,8 +145,9 @@ func openStoreStrict() (*store.Store, error) {
 
 // openStoreWith opens the archive with the configured embedder. A new archive
 // gets chunk_vec at the configured size (auto-detected with one request only
-// when the config leaves it open; 768 if the provider cannot answer, which
-// never fails the open). An existing archive keeps its size. With notes == nil
+// when the config leaves it open; if the provider cannot answer, a size guessed
+// from the model name (provider.FallbackDims) or else 768, which never fails
+// the open). An existing archive keeps its size. With notes == nil
 // an invalid config is an error and, unless allowDimsChange, so is a different
 // configured size (naming both values); with notes != nil (io.Discard to stay
 // silent) an invalid config falls back to the defaults (never for a NEW archive,
@@ -190,13 +191,18 @@ func openStoreWith(p string, allowDimsChange bool, notes io.Writer) (*store.Stor
 		cancel()
 		dims = emb.Dims()
 	}
+	if existing != nil && dims == 0 {
+		// a new archive and the provider did not answer: size it from the model name
+		// rather than the generic default
+		dims = provider.FallbackDims(cfg.Embed.Model)
+	}
 	fpDims := dims
 	if fpDims == 0 {
 		fpDims = store.VecDim
 	}
 	fp := provider.Fingerprint(cfg.Embed.Provider, cfg.Embed.Model, fpDims, *cfg.Embed.DocPrefix)
 	if probeErr != nil && notes != nil {
-		fmt.Fprintf(notes, "session-index: creating chunk_vec with %d dims and fingerprint %s (provider probe failed: %v); set embed.dims, then run rebuild-derived\n", store.VecDim, fp, probeErr)
+		fmt.Fprintf(notes, "session-index: creating chunk_vec with %d dims and fingerprint %s (provider probe failed: %v); set embed.dims, then run rebuild-derived\n", fpDims, fp, probeErr)
 	}
 	own, _ := ownProfile()
 	st, err := store.OpenWith(p, store.Opts{

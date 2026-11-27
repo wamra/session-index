@@ -66,3 +66,20 @@ func KnownEmbedModel(model string) (ModelDefaults, bool) {
 	}
 	return ModelDefaults{}, false
 }
+
+// FallbackDims guesses the vector size of a model whose size is auto-detected,
+// from its name. It is used only when the provider cannot answer while a new
+// archive is created; 0 means unknown.
+func FallbackDims(model string) int {
+	m := strings.ToLower(model)
+	if !strings.Contains(m, "qwen3-embedding") {
+		return 0
+	}
+	switch {
+	case strings.Contains(m, "8b"):
+		return 4096
+	case strings.Contains(m, "4b"):
+		return 2560
+	}
+	return 1024 // 0.6b, also the untagged name
+}
