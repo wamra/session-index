@@ -88,6 +88,8 @@ Ollama (the default, written out):
  "summarize": {"provider": "ollama", "model": "gemma4:e4b"}}
 ```
 
+**Using Qwen3-Embedding.** The default embedding model is unchanged: `embeddinggemma`. `qwen3-embedding` is also supported. To use it, run `ollama pull qwen3-embedding:0.6b` and set `embed.model` to `qwen3-embedding:0.6b` in `config.json` (or set the environment variable `SESSION_INDEX_EMBED_MODEL`). The 4b and 8b tags work the same way. The query instruction it expects is added to every query automatically, and documents take no prefix. The vector size is detected from the model. Switching an existing archive needs `session-index rebuild-derived` and then `session-index embed`, which re-embeds every chunk. On the maintainer's benchmark of session transcripts (one run, 14,010 chunks, 150 sessions, unpublished), `embeddinggemma` scored MRR 0.660 and `qwen3-embedding:0.6b` with the instruction 0.604; `qwen3-embedding:4b` with the instruction scored 0.655, and without the instruction 0.516 (0.6b) and 0.531 (4b).
+
 LM Studio (OpenAI-compatible; replace `<port>` with the port its server listens on):
 
 ```json
