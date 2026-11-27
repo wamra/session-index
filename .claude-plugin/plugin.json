@@ -1,0 +1,16 @@
+{
+  "name": "session-index",
+  "description": "Lossless, searchable index of your Claude Code sessions: hooks keep it current, a skill and the search and show tools query it, /sessions prints hits. Binaries for macOS, Linux and Windows are bundled.",
+  "license": "MIT",
+  "author": {
+    "name": "wamra"
+  },
+  "userConfig": {
+    "binary": {
+      "type": "string",
+      "title": "session-index binary",
+      "description": "Command or absolute path of the session-index executable.",
+      "default": "session-index"
+    }
+  }
+}
