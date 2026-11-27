@@ -313,6 +313,13 @@ func TestKnownModelDefaults(t *testing.T) {
 		{"bge-m3", "", "Represent this sentence for searching relevant passages: ", 0},
 		{"BAAI/bge-small-en-v1.5", "", "Represent this sentence for searching relevant passages: ", 0},
 		{"text-embedding-3-small", "", "", 1536},
+		// Qwen3 sizes differ per tag (0.6b 1024, 4b 2560, 8b 4096), so dims stay open: auto-detected.
+		{"qwen3-embedding", "", Qwen3QueryPrefix, 0},
+		{"qwen3-embedding:0.6b", "", Qwen3QueryPrefix, 0},
+		{"qwen3-embedding:4b", "", Qwen3QueryPrefix, 0},
+		{"qwen3-embedding:8b", "", Qwen3QueryPrefix, 0},
+		{"Qwen/Qwen3-Embedding-0.6B", "", Qwen3QueryPrefix, 0},
+		{"hf.co/Qwen/Qwen3-Embedding-4B-GGUF:Q8_0", "", Qwen3QueryPrefix, 0},
 	} {
 		d, ok := KnownEmbedModel(c.model)
 		if !ok || d.DocPrefix != c.doc || d.QueryPrefix != c.query || d.Dims != c.dims {
